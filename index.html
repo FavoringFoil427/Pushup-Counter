@@ -46,6 +46,11 @@
     text-align:center;font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:var(--dim);
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 
+  #today{position:absolute;top:50%;left:0;right:0;margin-top:calc(19vh + 40px);
+    text-align:center;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--down);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;opacity:0;transition:opacity .3s}
+  #today.on{opacity:1}
+
   #meter{position:absolute;left:18px;right:18px;bottom:calc(150px + env(safe-area-inset-bottom));
     height:6px;background:rgba(234,242,240,.14);border-radius:99px;overflow:hidden}
   #fill{height:100%;width:0%;background:var(--signal);border-radius:99px;transition:width .06s linear}
@@ -85,6 +90,7 @@
 
   <div id="count">0</div>
   <div id="countlabel">reps</div>
+  <div id="today">Today 0</div>
 
   <div id="meter"><div id="fill"></div></div>
 
@@ -98,6 +104,7 @@
     </div>
     <div class="row" id="row3" style="display:none">
       <button id="reset">Reset count</button>
+      <button id="save" style="display:none">Save set</button>
     </div>
     <p class="hint" id="hint">Put the phone on the floor under your chest, screen up.</p>
   </div>
@@ -196,6 +203,10 @@ btnUp.onclick=()=>countdownCapture('up');
 btnDown.onclick=()=>countdownCapture('down');
 btnReset.onclick=()=>{count=0; elCount.textContent='0'; phase='up';};
 
+// hooks for the Firebase module below
+window.getCount=()=>count;
+window.zeroCount=()=>{count=0; elCount.textContent='0'; phase='up';};
+
 function loop(){
   if(!running) return;
   requestAnimationFrame(loop);
@@ -222,6 +233,82 @@ function loop(){
   elFill.style.background = phase==='down' ? 'var(--down)' : 'var(--signal)';
   const w=4+pct*34, col = phase==='down' ? '63,217,168' : '255,176,32';
   elRing.style.boxShadow=`inset 0 0 0 ${w.toFixed(1)}px rgba(${col},${(.25+pct*.45).toFixed(2)})`;
+}
+</script>
+
+<script type="module">
+/* ─────────────────────────────────────────────────────────────
+   FIREBASE — paste your own config from
+   Firebase console → Project settings → Your apps → Web app.
+   Leave it as-is and the app just runs without saving.
+   Also enable: Authentication → Sign-in method → Anonymous.
+   ───────────────────────────────────────────────────────────── */
+const firebaseConfig = {
+  apiKey: "AIzaSyATaigvrEpTIa-G0RN_dXO0-Heh2qpGsos",
+  authDomain: "pushup-counter-c393a.firebaseapp.com",
+  projectId: "pushup-counter-c393a",
+  storageBucket: "pushup-counter-c393a.firebasestorage.app",
+  messagingSenderId: "1024118983641",
+  appId: "1:1024118983641:web:c6d0e8f9abe3261b8da7c8"
+};
+
+const btnSave = document.getElementById('save');
+const elToday = document.getElementById('today');
+
+if (firebaseConfig.apiKey === "PASTE_ME") {
+  console.log("Firebase not configured — saving is off.");
+} else {
+  const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+  const { getAuth, signInAnonymously, onAuthStateChanged } =
+    await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
+  const { getFirestore, doc, getDoc, setDoc, increment } =
+    await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  const dayKey = () => new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local time
+  let uid = null;
+
+  const todayRef = () => doc(db, 'users', uid, 'sessions', dayKey());
+
+  async function showToday(){
+    try{
+      const snap = await getDoc(todayRef());
+      const reps = snap.exists() ? (snap.data().reps || 0) : 0;
+      elToday.textContent = `Today ${reps}`;
+      elToday.classList.add('on');
+    }catch(e){ console.warn('Read failed', e); }
+  }
+
+  signInAnonymously(auth).catch(e => console.warn('Sign-in failed', e));
+  onAuthStateChanged(auth, user => {
+    if(!user) return;
+    uid = user.uid;
+    btnSave.style.display = '';
+    showToday();
+  });
+
+  btnSave.onclick = async () => {
+    const reps = window.getCount();
+    if(!uid || reps === 0) return;
+    btnSave.disabled = true;
+    const label = btnSave.textContent;
+    btnSave.textContent = 'Saving…';
+    try{
+      // one doc per day, incremented per set — a few writes a day, not one per rep
+      await setDoc(todayRef(), { reps: increment(reps), updated: Date.now() }, { merge: true });
+      window.zeroCount();
+      await showToday();
+      btnSave.textContent = 'Saved';
+      setTimeout(() => { btnSave.textContent = label; btnSave.disabled = false; }, 1200);
+    }catch(e){
+      console.warn('Save failed', e);
+      btnSave.textContent = 'Save failed — retry';
+      btnSave.disabled = false;
+    }
+  };
 }
 </script>
 </body>
