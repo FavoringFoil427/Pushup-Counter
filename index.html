@@ -18,7 +18,8 @@
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
 
-  #stage{position:fixed;inset:0;overflow:hidden;background:var(--deeper)}
+  #stage{position:fixed;inset:0;overflow:hidden;background:var(--deeper);
+    display:flex;flex-direction:column;height:100vh;height:100dvh}
   video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
     transform:scaleX(-1);filter:saturate(.5) contrast(1.05) brightness(.7)}
   #tint{position:absolute;inset:0;background:
@@ -29,35 +30,35 @@
     box-shadow:inset 0 0 0 4px rgba(255,176,32,.35);
     transition:box-shadow .08s linear}
 
-  #top{position:absolute;top:0;left:0;right:0;padding:14px 18px;
-    padding-top:calc(14px + env(safe-area-inset-top));
+  #top{flex:0 0 auto;padding:12px 18px;
+    padding-top:calc(12px + env(safe-area-inset-top));
     display:flex;justify-content:space-between;align-items:baseline;gap:12px}
   .eyebrow{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
   #state{color:var(--signal)}
 
-  #count{position:absolute;top:50%;left:0;right:0;transform:translateY(-58%);
-    text-align:center;font-size:clamp(96px,38vh,300px);line-height:.82;font-weight:900;
+  #count{flex:1 1 auto;display:flex;align-items:center;justify-content:center;min-height:0;
+    text-align:center;font-size:clamp(72px,20vh,220px);line-height:1;font-weight:900;
     letter-spacing:-.05em;font-variant-numeric:tabular-nums;
     text-shadow:0 6px 40px rgba(2,20,25,.9)}
   #count.pop{animation:pop .22s ease-out}
-  @keyframes pop{0%{transform:translateY(-58%) scale(1)}45%{transform:translateY(-58%) scale(1.12)}100%{transform:translateY(-58%) scale(1)}}
-  #countlabel{position:absolute;top:50%;left:0;right:0;margin-top:calc(19vh + 14px);
+  @keyframes pop{0%{transform:scale(1)}45%{transform:scale(1.1)}100%{transform:scale(1)}}
+  #countlabel{flex:0 0 auto;
     text-align:center;font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:var(--dim);
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 
-  #today{position:absolute;top:calc(46px + env(safe-area-inset-top));left:0;right:0;
+  #today{flex:0 0 auto;margin-top:4px;
     text-align:center;font-size:24px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--down);
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace;opacity:0;transition:opacity .3s;
     text-shadow:0 2px 20px rgba(2,20,25,.9)}
   #today.on{opacity:1}
 
-  #meter{position:absolute;left:18px;right:18px;bottom:calc(150px + env(safe-area-inset-bottom));
+  #meter{flex:0 0 auto;margin:14px 18px 0;
     height:6px;background:rgba(234,242,240,.14);border-radius:99px;overflow:hidden}
   #fill{height:100%;width:0%;background:var(--signal);border-radius:99px;transition:width .06s linear}
 
-  #panel{position:absolute;left:0;right:0;bottom:0;padding:16px 18px;
-    padding-bottom:calc(16px + env(safe-area-inset-bottom));
+  #panel{flex:0 0 auto;padding:14px 18px;
+    padding-bottom:calc(14px + env(safe-area-inset-bottom));
     background:linear-gradient(to top,rgba(2,20,25,.96),rgba(2,20,25,0));
     display:flex;flex-direction:column;gap:10px}
   .row{display:flex;gap:10px}
@@ -270,16 +271,16 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
   const db = getFirestore(app);
 
   const dayKey = () => new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local time
-  let uid = null;
+  let uid = null, todayReps = 0;
 
   const todayRef = () => doc(db, 'users', uid, 'sessions', dayKey());
+  const paintToday = () => { elToday.textContent = `Today ${todayReps}`; elToday.classList.add('on'); };
 
-  async function showToday(){
+  async function loadToday(){
     try{
       const snap = await getDoc(todayRef());
-      const reps = snap.exists() ? (snap.data().reps || 0) : 0;
-      elToday.textContent = `Today ${reps}`;
-      elToday.classList.add('on');
+      todayReps = snap.exists() ? (snap.data().reps || 0) : 0;
+      paintToday();
     }catch(e){ console.warn('Read failed', e); }
   }
 
@@ -288,27 +289,27 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
     if(!user) return;
     uid = user.uid;
     btnSave.style.display = '';
-    showToday();
+    loadToday();
   });
 
-  btnSave.onclick = async () => {
+  btnSave.onclick = () => {
     const reps = window.getCount();
     if(!uid || reps === 0) return;
-    btnSave.disabled = true;
-    const label = btnSave.textContent;
-    btnSave.textContent = 'Saving…';
-    try{
-      // one doc per day, incremented per set — a few writes a day, not one per rep
-      await setDoc(todayRef(), { reps: increment(reps), updated: Date.now() }, { merge: true });
-      window.zeroCount();
-      await showToday();
-      btnSave.textContent = 'Saved';
-      setTimeout(() => { btnSave.textContent = label; btnSave.disabled = false; }, 1200);
-    }catch(e){
-      console.warn('Save failed', e);
-      btnSave.textContent = 'Save failed — retry';
-      btnSave.disabled = false;
-    }
+
+    // update the screen now; let the write finish in the background
+    todayReps += reps;
+    paintToday();
+    window.zeroCount();
+    btnSave.textContent = 'Saved';
+    setTimeout(() => { btnSave.textContent = 'Save set'; }, 1200);
+
+    setDoc(todayRef(), { reps: increment(reps), updated: Date.now() }, { merge: true })
+      .catch(e => {
+        console.warn('Save failed', e);
+        todayReps -= reps;
+        paintToday();
+        btnSave.textContent = 'Save failed';
+      });
   };
 }
 </script>
