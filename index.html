@@ -1,652 +1,228 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Realm Sign-Up</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Push-up Counter</title>
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-:root {
---bg: #0e0e12;
---surface: #17171e;
---surface2: #1e1e28;
---border: rgba(255,255,255,0.08);
---border-hover: rgba(255,255,255,0.16);
---text: #e8e6f0;
---muted: #7a7890;
---accent: #c9a84c;
---accent-dim: rgba(201,168,76,0.12);
---accent-dim2: rgba(201,168,76,0.22);
---danger: #e05555;
---danger-dim: rgba(224,85,85,0.12);
---success: #4caf7d;
---success-dim: rgba(76,175,125,0.12);
---taken: #3a3848;
---radius: 8px;
---radius-lg: 12px;
-}
-body {
-background: var(--bg);
-color: var(--text);
-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-font-size: 15px;
-line-height: 1.6;
-min-height: 100vh;
-}
-.page {
-max-width: 640px;
-margin: 0 auto;
-padding: 3rem 1.5rem 4rem;
-}
-.header {
-text-align: center;
-margin-bottom: 2.5rem;
-}
-.header h1 {
-font-size: 2rem;
-font-weight: 600;
-letter-spacing: -0.02em;
-color: var(--accent);
-margin-bottom: 0.4rem;
-}
-.header p {
-color: var(--muted);
-font-size: 14px;
-}
-.divider {
-border: none;
-border-top: 1px solid var(--border);
-margin: 2rem 0;
-}
-.tab-bar {
-display: flex;
-border-bottom: 1px solid var(--border);
-margin-bottom: 2rem;
-gap: 0;
-}
-.tab {
-padding: 10px 20px;
-font-size: 14px;
-cursor: pointer;
-border: none;
-background: none;
-color: var(--muted);
-border-bottom: 2px solid transparent;
-margin-bottom: -1px;
-transition: color 0.15s, border-color 0.15s;
-}
-.tab.active {
-color: var(--accent);
-border-bottom-color: var(--accent);
-font-weight: 500;
-}
-.tab:hover:not(.active) { color: var(--text); }
-.field { margin-bottom: 1.25rem; }
-.field label {
-display: block;
-font-size: 13px;
-color: var(--muted);
-margin-bottom: 6px;
-letter-spacing: 0.02em;
-text-transform: uppercase;
-font-weight: 500;
-}
-.field input {
-width: 100%;
-background: var(--surface);
-border: 1px solid var(--border);
-border-radius: var(--radius);
-padding: 10px 14px;
-color: var(--text);
-font-size: 15px;
-outline: none;
-transition: border-color 0.15s;
-}
-.field input:focus { border-color: var(--accent); }
-.field input::placeholder { color: var(--muted); }
-.field input[type="number"] { width: 120px; }
-.field input[type="tel"] { width: 240px; }
-.optional {
-font-size: 11px;
-color: var(--muted);
-text-transform: none;
-letter-spacing: 0;
-font-weight: 400;
-margin-left: 4px;
-}
-.god-section-label {
-font-size: 13px;
-color: var(--muted);
-letter-spacing: 0.02em;
-text-transform: uppercase;
-font-weight: 500;
-margin-bottom: 12px;
-}
-.god-grid {
-display: grid;
-grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-gap: 8px;
-margin-bottom: 1.5rem;
-}
-.god-card {
-border: 1px solid var(--border);
-border-radius: var(--radius);
-padding: 10px 14px;
-cursor: pointer;
-background: var(--surface);
-transition: border-color 0.15s, background 0.15s;
-display: flex;
-flex-direction: column;
-font-size: 14px;
-color: var(--text);
-user-select: none;
-}
-.god-card:hover:not(.taken) {
-border-color: var(--border-hover);
-background: var(--surface2);
-}
-.god-card.selected {
-border-color: var(--accent);
-background: var(--accent-dim2);
-color: var(--accent);
-}
-.god-card.taken {
-opacity: 0.35;
-cursor: not-allowed;
-text-decoration: line-through;
-background: var(--taken);
-}
-.god-dot {
-width: 7px;
-height: 7px;
-border-radius: 50%;
-flex-shrink: 0;
-background: var(--border-hover);
-transition: background 0.15s;
-}
-.god-card.selected .god-dot { background: var(--accent); }
-.god-card.taken .god-dot { background: var(--danger); }
-.btn {
-display: inline-block;
-padding: 11px 28px;
-background: var(--accent);
-color: #0e0e12;
-border: none;
-border-radius: var(--radius);
-font-size: 15px;
-font-weight: 600;
-cursor: pointer;
-transition: opacity 0.15s, transform 0.1s;
-letter-spacing: 0.01em;
-}
-.btn:hover { opacity: 0.88; }
-.btn:active { transform: scale(0.98); }
-.btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-.btn-danger {
-background: none;
-color: var(--danger);
-border: 1px solid rgba(224,85,85,0.3);
-padding: 6px 14px;
-font-size: 13px;
-font-weight: 500;
-}
-.btn-danger:hover { background: var(--danger-dim); opacity: 1; }
-.btn-sm {
-padding: 5px 12px;
-font-size: 12px;
-background: none;
-color: var(--danger);
-border: 1px solid rgba(224,85,85,0.3);
-border-radius: var(--radius);
-cursor: pointer;
-transition: background 0.15s;
-font-weight: 500;
-}
-.btn-sm:hover { background: var(--danger-dim); }
-.alert {
-padding: 11px 16px;
-border-radius: var(--radius);
-font-size: 14px;
-margin-bottom: 1.25rem;
-}
-.alert-success { background: var(--success-dim); color: var(--success); border: 1px solid rgba(76,175,125,0.2); }
-.alert-danger { background: var(--danger-dim); color: var(--danger); border: 1px solid rgba(224,85,85,0.2); }
-.admin-lock {
-max-width: 320px;
-}
-.entry-list { margin-top: 0.5rem; }
-.entry-row {
-display: flex;
-align-items: center;
-justify-content: space-between;
-padding: 12px 0;
-border-bottom: 1px solid var(--border);
-gap: 12px;
-}
-.entry-row:last-child { border-bottom: none; }
-.entry-info { display: flex; flex-direction: column; gap: 2px; }
-.entry-name {
-font-weight: 500;
-font-size: 15px;
-}
-.entry-meta {
-font-size: 12px;
-color: var(--muted);
-display: flex;
-gap: 10px;
-flex-wrap: wrap;
-}
-.entry-god {
-color: var(--accent);
-font-size: 12px;
-font-weight: 500;
-}
-.admin-header {
-display: flex;
-align-items: center;
-justify-content: space-between;
-margin-bottom: 1rem;
-}
-.count-badge {
-font-size: 12px;
-background: var(--accent-dim);
-color: var(--accent);
-padding: 3px 10px;
-border-radius: 20px;
-font-weight: 500;
-}
-.empty {
-text-align: center;
-color: var(--muted);
-font-size: 14px;
-padding: 3rem 0;
-}
-.loading {
-text-align: center;
-color: var(--muted);
-font-size: 14px;
-padding: 2rem 0;
-}
-@media (max-width: 480px) {
-.page { padding: 2rem 1rem 3rem; }
-.header h1 { font-size: 1.6rem; }
-.god-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
-}
+  :root{
+    --deep:#04232B;
+    --deeper:#021419;
+    --paper:#EAF2F0;
+    --signal:#FFB020;
+    --down:#3FD9A8;
+    --dim:rgba(234,242,240,.55);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden;background:var(--deeper);color:var(--paper);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+
+  #stage{position:fixed;inset:0;overflow:hidden;background:var(--deeper)}
+  video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+    transform:scaleX(-1);filter:saturate(.5) contrast(1.05) brightness(.7)}
+  #tint{position:absolute;inset:0;background:
+    radial-gradient(120% 90% at 50% 42%, rgba(4,35,43,.15), rgba(2,20,25,.92) 100%)}
+
+  /* signature: the frame closes in on you as you descend */
+  #ring{position:absolute;inset:0;pointer-events:none;
+    box-shadow:inset 0 0 0 4px rgba(255,176,32,.35);
+    transition:box-shadow .08s linear}
+
+  #top{position:absolute;top:0;left:0;right:0;padding:14px 18px;
+    padding-top:calc(14px + env(safe-area-inset-top));
+    display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+  .eyebrow{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  #state{color:var(--signal)}
+
+  #count{position:absolute;top:50%;left:0;right:0;transform:translateY(-58%);
+    text-align:center;font-size:clamp(96px,38vh,300px);line-height:.82;font-weight:900;
+    letter-spacing:-.05em;font-variant-numeric:tabular-nums;
+    text-shadow:0 6px 40px rgba(2,20,25,.9)}
+  #count.pop{animation:pop .22s ease-out}
+  @keyframes pop{0%{transform:translateY(-58%) scale(1)}45%{transform:translateY(-58%) scale(1.12)}100%{transform:translateY(-58%) scale(1)}}
+  #countlabel{position:absolute;top:50%;left:0;right:0;margin-top:calc(19vh + 14px);
+    text-align:center;font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:var(--dim);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  #meter{position:absolute;left:18px;right:18px;bottom:calc(150px + env(safe-area-inset-bottom));
+    height:6px;background:rgba(234,242,240,.14);border-radius:99px;overflow:hidden}
+  #fill{height:100%;width:0%;background:var(--signal);border-radius:99px;transition:width .06s linear}
+
+  #panel{position:absolute;left:0;right:0;bottom:0;padding:16px 18px;
+    padding-bottom:calc(16px + env(safe-area-inset-bottom));
+    background:linear-gradient(to top,rgba(2,20,25,.96),rgba(2,20,25,0));
+    display:flex;flex-direction:column;gap:10px}
+  .row{display:flex;gap:10px}
+  button{flex:1;padding:15px 10px;border:1px solid rgba(234,242,240,.22);background:rgba(234,242,240,.06);
+    color:var(--paper);border-radius:14px;font-size:14px;font-weight:600;letter-spacing:.01em;cursor:pointer}
+  button:active{background:rgba(234,242,240,.16)}
+  button:disabled{opacity:.35}
+  button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
+  button.primary{background:var(--signal);color:#04232B;border-color:var(--signal);font-weight:800}
+  button.done{border-color:var(--down);color:var(--down)}
+  .hint{font-size:12px;line-height:1.45;color:var(--dim);text-align:center;padding:0 4px}
+
+  #countdown{position:absolute;inset:0;display:none;place-items:center;background:rgba(2,20,25,.82)}
+  #countdown.on{display:grid}
+  #cdnum{font-size:34vh;font-weight:900;color:var(--signal);line-height:1}
+  #cdtxt{position:absolute;bottom:22%;left:0;right:0;text-align:center;font-size:15px;color:var(--paper)}
+
+  @media (prefers-reduced-motion:reduce){#count.pop{animation:none}}
 </style>
 </head>
 <body>
-<div class="page">
-<div class="header">
-<h1>⚡ Realm Sign-Up</h1>
-<p>Claim your god. First come, first served.</p>
-</div>
-<div class="tab-bar">
-<button class="tab active" onclick="showTab('signup')" id="tab-signup">Sign up</button>
-<button class="tab" onclick="showTab('admin')" id="tab-admin">🔒 Admin</button>
-</div>
-<div id="pane-signup">
-<div id="alert-area"></div>
-<div class="field">
-<label>Gamertag <span style="color:var(--danger)">*</span></label>
-<input type="text" id="gamertag" placeholder="YourGamertag" maxlength="50">
-</div>
-<div class="field">
-<label>Age <span style="color:var(--danger)">*</span></label>
-<input type="number" id="age" placeholder="e.g. 17" min="1" max="99">
-</div>
-<div class="field">
-<label>Email <span id="email-required" style="color:var(--danger)">*</span> <span class="optional">(pick email or phone number as a contact method)</span></label>
-<input type="email" id="email" placeholder="you@example.com" oninput="updateContactLabels()">
-</div>
-<div class="field">
-<label>Phone number <span id="phone-required" style="color:var(--danger)">*</span> <span class="optional">(pick email or phone number as a contact method)</span></label>
-<input type="tel" id="phone" placeholder="e.g. 555-867-5309" oninput="updateContactLabels()">
-</div>
-<div class="god-section-label">Choose your god <span style="color:var(--danger)">*</span></div>
-<div class="god-grid" id="god-grid">
-<div class="loading">Loading gods...</div>
-</div>
-<button class="btn" onclick="submitSignup()" id="submit-btn">Join the Realm</button>
-</div>
-<div id="pane-admin" style="display:none;">
-<div id="admin-locked" class="admin-lock">
-<div class="field">
-<label>Password</label>
-<input type="password" id="pw-input" placeholder="Enter admin password" onkeydown="if(event.key==='Enter')checkPassword()">
-</div>
-<button class="btn" onclick="checkPassword()">Unlock</button>
-<div id="pw-error" style="margin-top:10px; font-size:13px; color:var(--danger); display:none;">Wrong password.</div>
-</div>
-<div id="admin-panel" style="display:none;">
-<div class="admin-header">
-<span class="count-badge"><span id="count">0</span> signups</span>
-<div style="display:flex; gap:8px;">
-<button class="btn-sm" style="color:var(--accent); border-color:var(--accent-dim2);" onclick="backfillClaims()">Backfill god claims</button>
-<button class="btn-danger" onclick="clearAll()">Clear all</button>
-</div>
-</div>
-<div id="backfill-report" style="margin-bottom:1rem;"></div>
-<div id="entries-list" class="entry-list"></div>
-</div>
-</div>
-</div>
+<div id="stage">
+  <video id="v" playsinline muted autoplay></video>
+  <div id="tint"></div>
+  <div id="ring"></div>
 
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import {
-  getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc,
-  getDocs, query, where, runTransaction, setDoc
-} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  <div id="top">
+    <span class="eyebrow">Push-ups</span>
+    <span class="eyebrow" id="state">Camera off</span>
+  </div>
 
-const firebaseConfig = {
-  apiKey: "AIzaSyCZPyA18fZ1kHtUreQz31lIQ3462xhWUDI",
-  authDomain: "realm-signup-name.firebaseapp.com",
-  projectId: "realm-signup-name",
-  storageBucket: "realm-signup-name.firebasestorage.app",
-  messagingSenderId: "689833641220",
-  appId: "1:689833641220:web:fdd5d8285d7275b6277c51"
-};
+  <div id="count">0</div>
+  <div id="countlabel">reps</div>
 
-// NOTE: this password is still visible to anyone who views source on this
-// page. It's fine as a soft deterrent, but don't treat it as real security —
-// anyone determined can read it directly out of the JS. If that matters,
-// move admin actions behind Firebase Auth + security rules instead.
-const ADMIN_PASSWORD = 'Redpirate427';
+  <div id="meter"><div id="fill"></div></div>
 
-const GODS = ['Zeus','Hera','Poseidon','Demeter','Athena','Apollo','Artemis','Ares','Aphrodite','Hephaestus','Hermes','Dionysus','Hades','Hypnos','Hecate','Nemesis','Nike','Iris','Morpheus','Tyche'];
-
-const GOD_DESCS = {
-  'Zeus': 'Has a maxed out netherite spear, Speed and Strength.',
-  'Hera': '1 golden apple every 30 sec, 1 enchanted golden apple every 5 min.',
-  'Poseidon': '2 tridents — one maxed with Loyalty, another maxed with Riptide.',
-  'Demeter': 'Resistance and Regen.',
-  'Athena': "When wearing Athena's helmet gain resistance.",
-  'Apollo': 'Bow with Infinite, Instant Harming, Speed, Regen, and Strength.',
-  'Artemis': 'Speed, Regen, Strength, and a crossbow.',
-  'Ares': 'Maxed out netherite sword with Strength.',
-  'Aphrodite': 'Regen, Speed, and Resistance.',
-  'Hephaestus':'A mace that grants Jump Boost when held.',
-  'Hermes': 'Elytra with 1 rocket every 30 sec.',
-  'Dionysus': 'Makes crops grow 3x faster in a 20 block radius and grants Regen.',
-  'Hades': 'A netherite sword that grants Speed and Invisibility when held.',
-  'Hypnos': 'Gain Night Vision and Strength, plus a netherite sword that inflicts Slowness.',
-  'Hecate': 'Gain Strength, Night Vision, Speed, and Fire Resistance.',
-  'Nemesis': 'A netherite sword that eliminates all effects on any player in a 20 block radius when held.',
-  'Nike': 'Gains Speed, Strength, and Regen.',
-  'Iris': 'Gains Speed, Jump Boost, and Resistance.',
-  'Morpheus': 'Gain a feather that grants Speed and Slow Falling.',
-  'Tyche': '5 absorption hearts every 30 seconds, Resistance, and Speed.',
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const signupsCol = collection(db, 'signups');
-// One doc per god, doc ID = god name. Existence of the doc = claimed.
-// This is what the transaction below checks/writes atomically.
-const claimsCol = collection(db, 'godClaims');
-
-let signups = [];
-let selectedGod = null;
-let adminUnlocked = false;
-
-onSnapshot(signupsCol, (snapshot) => {
-  signups = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-  renderGods();
-  if (adminUnlocked) renderAdminPanel();
-});
-
-function takenGods() { return signups.map(s => s.god); }
-
-function renderGods() {
-  const taken = takenGods();
-  const grid = document.getElementById('god-grid');
-  grid.innerHTML = GODS.map(g => {
-    const isTaken = taken.includes(g);
-    const isSelected = g === selectedGod;
-    let cls = 'god-card';
-    if (isTaken) cls += ' taken';
-    else if (isSelected) cls += ' selected';
-    const desc = GOD_DESCS[g] || '';
-    return `<div class="${cls}" onclick="window._selectGod('${g}')">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:${desc?'4px':'0'}">
-        <span class="god-dot"></span>
-        <span style="font-weight:600;font-size:14px;">${g}</span>
-        ${isTaken ? '<span style="font-size:10px;margin-left:auto;">(taken)</span>' : ''}
-      </div>
-      ${desc ? `<div style="font-size:11px;color:var(--muted);line-height:1.4;">${desc}</div>` : ''}
-    </div>`;
-  }).join('');
-}
-
-window.updateContactLabels = function() {
-  const email = document.getElementById('email').value.trim();
-  const phone = document.getElementById('phone').value.trim();
-  const emailReq = document.getElementById('email-required');
-  const phoneReq = document.getElementById('phone-required');
-  if (email) {
-    phoneReq.style.display = 'none';
-  } else if (phone) {
-    emailReq.style.display = 'none';
-  } else {
-    emailReq.style.display = '';
-    phoneReq.style.display = '';
-  }
-};
-
-window._selectGod = function(god) {
-  if (takenGods().includes(god)) return;
-  selectedGod = (selectedGod === god) ? null : god;
-  renderGods();
-};
-
-window.submitSignup = async function() {
-  const gamertag = document.getElementById('gamertag').value.trim();
-  const age = document.getElementById('age').value.trim();
-  const phone = document.getElementById('phone').value.trim();
-  const email = document.getElementById('email').value.trim();
-  const btn = document.getElementById('submit-btn');
-
-  if (!gamertag) { showAlert('danger', 'Please enter your gamertag.'); return; }
-  if (!age || isNaN(age) || +age < 1) { showAlert('danger', 'Please enter a valid age.'); return; }
-  if (!email && !phone) { showAlert('danger', 'Please enter at least an email or phone number.'); return; }
-  if (email && !email.includes('@')) { showAlert('danger', 'Please enter a valid email address.'); return; }
-  if (!selectedGod) { showAlert('danger', 'Please choose a god.'); return; }
-
-  if (takenGods().includes(selectedGod)) {
-    showAlert('danger', 'That god was just taken! Pick another.');
-    selectedGod = null;
-    renderGods();
-    return;
-  }
-
-  const existing = await getDocs(query(signupsCol, where('gamertag_lower', '==', gamertag.toLowerCase())));
-  if (!existing.empty) { showAlert('danger', 'That gamertag is already signed up.'); return; }
-
-  if (email) {
-    const emailCheck = await getDocs(query(signupsCol, where('email', '==', email.toLowerCase())));
-    if (!emailCheck.empty) { showAlert('danger', 'That email address is already signed up.'); return; }
-  }
-  if (phone) {
-    const phoneCheck = await getDocs(query(signupsCol, where('phone', '==', phone)));
-    if (!phoneCheck.empty) { showAlert('danger', 'That phone number is already signed up.'); return; }
-  }
-
-  btn.disabled = true;
-  const godToClaim = selectedGod;
-
-  try {
-    // Atomically claim the god: the transaction reads the claim doc, and
-    // only commits the writes (claim + signup record) if that doc doesn't
-    // already exist. If two people race for the same god, Firestore
-    // guarantees only one transaction wins — the other gets an error below
-    // and never writes a signup for that god.
-    const claimRef = doc(claimsCol, godToClaim);
-    const newSignupRef = doc(signupsCol);
-
-    await runTransaction(db, async (tx) => {
-      const claimSnap = await tx.get(claimRef);
-      if (claimSnap.exists()) {
-        throw new Error('GOD_TAKEN');
-      }
-      tx.set(claimRef, { claimedAt: Date.now() });
-      tx.set(newSignupRef, {
-        gamertag,
-        gamertag_lower: gamertag.toLowerCase(),
-        age: +age,
-        phone: phone || null,
-        email: email ? email.toLowerCase() : null,
-        god: godToClaim,
-        ts: Date.now()
-      });
-    });
-
-    selectedGod = null;
-    document.getElementById('gamertag').value = '';
-    document.getElementById('age').value = '';
-    document.getElementById('phone').value = '';
-    document.getElementById('email').value = '';
-    showAlert('success', `Welcome to the Realm, ${gamertag}! You claimed ${godToClaim}.`);
-  } catch (e) {
-    if (e.message === 'GOD_TAKEN') {
-      showAlert('danger', 'Someone just claimed that god a moment before you. Please pick another.');
-      selectedGod = null;
-      renderGods();
-    } else {
-      showAlert('danger', 'Something went wrong. Please try again.');
-    }
-  }
-
-  btn.disabled = false;
-};
-
-function showAlert(type, msg) {
-  const el = document.getElementById('alert-area');
-  el.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
-  setTimeout(() => { el.innerHTML = ''; }, 5000);
-}
-
-window.showTab = function(tab) {
-  document.getElementById('pane-signup').style.display = tab === 'signup' ? '' : 'none';
-  document.getElementById('pane-admin').style.display = tab === 'admin' ? '' : 'none';
-  document.getElementById('tab-signup').className = 'tab' + (tab === 'signup' ? ' active' : '');
-  document.getElementById('tab-admin').className = 'tab' + (tab === 'admin' ? ' active' : '');
-};
-
-window.checkPassword = function() {
-  const val = document.getElementById('pw-input').value;
-  if (val === ADMIN_PASSWORD) {
-    adminUnlocked = true;
-    document.getElementById('admin-locked').style.display = 'none';
-    document.getElementById('admin-panel').style.display = '';
-    renderAdminPanel();
-  } else {
-    document.getElementById('pw-error').style.display = '';
-  }
-};
-
-function renderAdminPanel() {
-  document.getElementById('count').textContent = signups.length;
-  const list = document.getElementById('entries-list');
-  if (!signups.length) { list.innerHTML = '<div class="empty">No signups yet.</div>'; return; }
-  const sorted = [...signups].sort((a,b) => a.ts - b.ts);
-  list.innerHTML = sorted.map(s => `
-    <div class="entry-row">
-      <div class="entry-info">
-        <span class="entry-name">${s.gamertag} <span class="entry-god">— ${s.god}</span></span>
-        <span class="entry-meta">
-          <span>Age ${s.age}</span>
-          ${s.phone ? `<span>${s.phone}</span>` : ''}
-          ${s.email ? `<span>${s.email}</span>` : ''}
-        </span>
-      </div>
-      <button class="btn-sm" onclick="window._removeEntry('${s.id}', '${s.god}')">Remove</button>
+  <div id="panel">
+    <div class="row" id="row1">
+      <button id="start" class="primary">Start camera</button>
     </div>
-  `).join('');
+    <div class="row" id="row2" style="display:none">
+      <button id="calUp">Capture up position</button>
+      <button id="calDown">Capture down position</button>
+    </div>
+    <div class="row" id="row3" style="display:none">
+      <button id="reset">Reset count</button>
+    </div>
+    <p class="hint" id="hint">Put the phone on the floor under your chest, screen up.</p>
+  </div>
+
+  <div id="countdown"><div id="cdnum">3</div><div id="cdtxt">Hold still</div></div>
+</div>
+
+<canvas id="c" width="16" height="12" style="display:none"></canvas>
+
+<script>
+const W=16,H=12,N=W*H;
+const v=document.getElementById('v'), cv=document.getElementById('c'), ctx=cv.getContext('2d',{willReadFrequently:true});
+const elCount=document.getElementById('count'), elState=document.getElementById('state'),
+      elFill=document.getElementById('fill'), elRing=document.getElementById('ring'), elHint=document.getElementById('hint');
+const btnStart=document.getElementById('start'), btnUp=document.getElementById('calUp'),
+      btnDown=document.getElementById('calDown'), btnReset=document.getElementById('reset');
+const cd=document.getElementById('countdown'), cdnum=document.getElementById('cdnum'), cdtxt=document.getElementById('cdtxt');
+
+let tplUp=null, tplDown=null, count=0, phase='up', lastFlip=0, busy=false, running=false;
+const DOWN_AT=.62, UP_AT=.38, DEBOUNCE=350;
+
+// --- tiny normalized thumbnail: lighting- and skin-tone-agnostic ---
+function grab(){
+  if(v.readyState<2) return null;
+  ctx.drawImage(v,0,0,W,H);
+  const d=ctx.getImageData(0,0,W,H).data, a=new Float32Array(N);
+  let m=0;
+  for(let i=0;i<N;i++){const p=i*4; a[i]=(d[p]*.299+d[p+1]*.587+d[p+2]*.114); m+=a[i];}
+  m/=N;
+  let s=0; for(let i=0;i<N;i++){a[i]-=m; s+=a[i]*a[i];}
+  s=Math.sqrt(s/N)||1;
+  for(let i=0;i<N;i++) a[i]/=s;
+  return a;
+}
+function dist(a,b){let s=0;for(let i=0;i<N;i++){const d=a[i]-b[i];s+=d*d;}return s/N;}
+
+let audio;
+function beep(f,ms){
+  try{
+    audio=audio||new (window.AudioContext||window.webkitAudioContext)();
+    const o=audio.createOscillator(), g=audio.createGain();
+    o.frequency.value=f; o.connect(g); g.connect(audio.destination);
+    g.gain.setValueAtTime(.001,audio.currentTime);
+    g.gain.exponentialRampToValueAtTime(.25,audio.currentTime+.01);
+    g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+ms/1000);
+    o.start(); o.stop(audio.currentTime+ms/1000);
+  }catch(e){}
 }
 
-window._removeEntry = async function(id, god) {
-  const pw = prompt('Enter admin password to remove this entry:');
-  if (pw !== ADMIN_PASSWORD) { alert('Wrong password.'); return; }
-  await deleteDoc(doc(db, 'signups', id));
-  // Also release the god claim so someone else can pick it.
-  if (god) {
-    await deleteDoc(doc(claimsCol, god));
+btnStart.onclick=async()=>{
+  btnStart.disabled=true; elState.textContent='Starting…';
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640}},audio:false});
+    v.srcObject=stream; await v.play();
+    running=true;
+    document.getElementById('row1').style.display='none';
+    document.getElementById('row2').style.display='flex';
+    document.getElementById('row3').style.display='flex';
+    elState.textContent='Needs calibration';
+    elHint.textContent='Step 1: hold the top of a push-up and tap “Capture up position”.';
+    beep(660,90);
+    loop();
+  }catch(e){
+    btnStart.disabled=false; elState.textContent='No camera';
+    elHint.textContent='Camera access was blocked. Allow it in your browser settings, then tap Start camera again.';
   }
 };
 
-window.backfillClaims = async function() {
-  const reportEl = document.getElementById('backfill-report');
-  reportEl.innerHTML = '<div class="loading">Checking existing signups...</div>';
+function countdownCapture(which){
+  if(busy) return; busy=true;
+  cd.classList.add('on');
+  cdtxt.textContent = which==='up' ? 'Get to the top and hold' : 'Get your face 3 inches from the camera and hold';
+  let n=3; cdnum.textContent=n; beep(520,80);
+  const t=setInterval(()=>{
+    n--;
+    if(n>0){cdnum.textContent=n; beep(520,80);}
+    else{
+      clearInterval(t); cd.classList.remove('on'); beep(880,160);
+      const f=grab();
+      if(f){
+        if(which==='up'){tplUp=f; btnUp.classList.add('done'); btnUp.textContent='Up position set';}
+        else{tplDown=f; btnDown.classList.add('done'); btnDown.textContent='Down position set';}
+      }
+      if(tplUp&&tplDown){
+        elState.textContent='Counting'; phase='up';
+        elHint.textContent='Go. A rep lands when you come back up.';
+      }else{
+        elHint.textContent = tplUp ? 'Step 2: tap “Capture down position”, then get your face right up to the camera.'
+                                   : 'Step 1: hold the top of a push-up and tap “Capture up position”.';
+      }
+      busy=false;
+    }
+  },1000);
+}
+btnUp.onclick=()=>countdownCapture('up');
+btnDown.onclick=()=>countdownCapture('down');
+btnReset.onclick=()=>{count=0; elCount.textContent='0'; phase='up';};
 
-  const snap = await getDocs(signupsCol);
-  const allSignups = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+function loop(){
+  if(!running) return;
+  requestAnimationFrame(loop);
+  if(busy) return;
+  const f=grab(); if(!f) return;
 
-  // Group signups by god
-  const byGod = {};
-  allSignups.forEach(s => {
-    if (!byGod[s.god]) byGod[s.god] = [];
-    byGod[s.god].push(s);
-  });
-
-  const existingClaims = await getDocs(claimsCol);
-  const alreadyClaimed = new Set(existingClaims.docs.map(d => d.id));
-
-  const clean = [];
-  const duplicates = [];
-
-  for (const god in byGod) {
-    const entries = byGod[god].sort((a, b) => a.ts - b.ts);
-    if (entries.length > 1) {
-      duplicates.push({ god, entries });
-    } else {
-      clean.push({ god, entry: entries[0] });
+  let score=0;
+  if(tplUp&&tplDown){
+    const du=dist(f,tplUp), dd=dist(f,tplDown);
+    score=du/(du+dd||1);
+    const now=performance.now();
+    if(now-lastFlip>DEBOUNCE){
+      if(phase==='up'&&score>DOWN_AT){phase='down'; lastFlip=now; beep(340,60);}
+      else if(phase==='down'&&score<UP_AT){
+        phase='up'; lastFlip=now; count++;
+        elCount.textContent=count;
+        elCount.classList.remove('pop'); void elCount.offsetWidth; elCount.classList.add('pop');
+        beep(900,130);
+      }
     }
   }
-
-  // Only create claim docs for gods with exactly one signup and no
-  // existing claim. Duplicates are left for you to resolve manually so
-  // nobody's entry gets silently deleted.
-  let created = 0;
-  for (const { god, entry } of clean) {
-    if (!alreadyClaimed.has(god)) {
-      await setDoc(doc(claimsCol, god), { claimedAt: entry.ts, backfilled: true });
-      created++;
-    }
-  }
-
-  let html = `<div class="alert alert-success">Backfilled ${created} god claim(s) from existing signups.</div>`;
-
-  if (duplicates.length) {
-    html += `<div class="alert alert-danger">${duplicates.length} god(s) have duplicate signups — resolve these manually below, then click "Backfill god claims" again to lock in the winner.</div>`;
-    duplicates.forEach(({ god, entries }) => {
-      html += `<div style="margin-bottom:10px; padding:10px; border:1px solid var(--border); border-radius:var(--radius);">
-        <div style="font-weight:600; color:var(--accent); margin-bottom:6px;">${god} — ${entries.length} claims</div>`;
-      entries.forEach((e, i) => {
-        const when = new Date(e.ts).toLocaleString();
-        html += `<div class="entry-row" style="padding:6px 0;">
-          <div class="entry-info">
-            <span class="entry-name">${i === 0 ? '🏆 ' : ''}${e.gamertag}</span>
-            <span class="entry-meta"><span>${when}</span></span>
-          </div>
-          ${i > 0 ? `<button class="btn-sm" onclick="window._removeEntry('${e.id}', null)">Remove</button>` : ''}
-        </div>`;
-      });
-      html += `</div>`;
-    });
-  }
-
-  reportEl.innerHTML = html;
-};
-
-window.clearAll = async function() {
-  const pw = prompt('Enter admin password to clear all signups:');
-  if (pw !== ADMIN_PASSWORD) { alert('Wrong password.'); return; }
-  if (!confirm('Clear all signups? This cannot be undone.')) return;
-  const snap = await getDocs(signupsCol);
-  await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
-  const claimsSnap = await getDocs(claimsCol);
-  await Promise.all(claimsSnap.docs.map(d => deleteDoc(d.ref)));
-};
+  const pct=Math.max(0,Math.min(1,score));
+  elFill.style.width=(pct*100).toFixed(1)+'%';
+  elFill.style.background = phase==='down' ? 'var(--down)' : 'var(--signal)';
+  const w=4+pct*34, col = phase==='down' ? '63,217,168' : '255,176,32';
+  elRing.style.boxShadow=`inset 0 0 0 ${w.toFixed(1)}px rgba(${col},${(.25+pct*.45).toFixed(2)})`;
+}
 </script>
 </body>
 </html>
