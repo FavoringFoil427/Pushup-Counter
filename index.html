@@ -46,9 +46,10 @@
     text-align:center;font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:var(--dim);
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 
-  #today{position:absolute;top:50%;left:0;right:0;margin-top:calc(19vh + 40px);
-    text-align:center;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--down);
-    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;opacity:0;transition:opacity .3s}
+  #today{position:absolute;top:calc(46px + env(safe-area-inset-top));left:0;right:0;
+    text-align:center;font-size:24px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--down);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;opacity:0;transition:opacity .3s;
+    text-shadow:0 2px 20px rgba(2,20,25,.9)}
   #today.on{opacity:1}
 
   #meter{position:absolute;left:18px;right:18px;bottom:calc(150px + env(safe-area-inset-bottom));
