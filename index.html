@@ -172,7 +172,11 @@
         </div>
       </div>
       <button id="resetAll">Reset all</button>
+      <button id="pause">Pause</button>
+    </div>
+    <div class="row" id="rowPaused" style="display:none">
       <button id="save" style="display:none">Save set</button>
+      <button id="unpause" class="primary">Unpause</button>
     </div>
     <p class="hint" id="hint">Put the phone on the floor under your chest, screen up.</p>
   </div>
@@ -228,7 +232,7 @@ let tplUp=null, tplDowns=[], count=0, phase='up', lastFlip=0, busy=false, runnin
 const MAX_DOWNS=4;
 let armAt=.55;          // sensitivity 54 on the 0-100 scale
 let peak=0, lastPeak=0; // deepest point of the current/most recent rep
-let lastScore=0, hold=0;
+let lastScore=0, hold=0, paused=false;
 const RELEASE=.10, DEBOUNCE=300, HOLD=3;
 
 // slider right = more sensitive = lower trigger (0.75 down to 0.38)
@@ -412,6 +416,24 @@ document.getElementById('resetAll').onclick=()=>{
   window.clearCalibration();
 };
 
+// ── pause: camera stays on, counting stops ──
+const row2=document.getElementById('row2'), row3=document.getElementById('row3'),
+      rowPaused=document.getElementById('rowPaused');
+document.getElementById('pause').onclick=()=>{
+  paused=true; phase='up'; hold=0;   // a half-finished rep dies here, not on resume
+  row2.style.display='none'; row3.style.display='none'; elHint.style.display='none';
+  rowPaused.style.display='flex';
+  elState.textContent='Paused';
+  elFill.style.width='0%';
+  elRing.style.boxShadow='inset 0 0 0 4px rgba(234,242,240,.15)';
+};
+document.getElementById('unpause').onclick=()=>{
+  paused=false;
+  rowPaused.style.display='none';
+  row2.style.display='flex'; row3.style.display='flex'; elHint.style.display='';
+  elState.textContent = (tplUp&&tplDowns.length) ? 'Counting' : 'Needs calibration';
+};
+
 // hooks for the Firebase module below
 window.getCount=()=>count;
 window.zeroCount=()=>{count=0; elCount.textContent='0'; phase='up';};
@@ -428,7 +450,7 @@ window.clearCalibration=(msg)=>{
 function loop(){
   if(!running) return;
   requestAnimationFrame(loop);
-  if(busy) return;
+  if(busy||paused) return;
   const f=grab(); if(!f) return;
 
   let score=0;
