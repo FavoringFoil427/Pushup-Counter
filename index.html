@@ -201,21 +201,32 @@ const btnStart=document.getElementById('start'), btnUp=document.getElementById('
 const cd=document.getElementById('countdown'), cdnum=document.getElementById('cdnum'), cdtxt=document.getElementById('cdtxt');
 const elReadout=document.getElementById('readout'), elSens=document.getElementById('sens');
 
+let tplUp=null, tplDown=null, count=0, phase='up', lastFlip=0, busy=false, running=false;
+let armAt=.49;          // sensitivity 70 on the 0-100 scale
+let peak=0, lastPeak=0; // deepest point of the current/most recent rep
+let lastScore=0;
+const RELEASE=.10, DEBOUNCE=300;
+
 // slider right = more sensitive = lower trigger (0.75 down to 0.38)
 const sensToArm = val => .75 - (val/100)*.37;
+
+function paintReadout(){
+  elReadout.textContent =
+    `depth ${Math.round(lastScore*100)}  ·  trigger ${Math.round(armAt*100)}` +
+    (lastPeak ? `  ·  last rep ${Math.round(lastPeak*100)}` : '');
+}
+
 try{
   const saved = localStorage.getItem('sensitivity');
   if(saved !== null){ elSens.value = saved; armAt = sensToArm(saved); }
 }catch(e){}
+paintReadout();
+
 elSens.addEventListener('input', () => {
   armAt = sensToArm(elSens.value);
+  paintReadout();
   try{ localStorage.setItem('sensitivity', elSens.value); }catch(e){}
 });
-
-let tplUp=null, tplDown=null, count=0, phase='up', lastFlip=0, busy=false, running=false;
-let armAt=.49;          // sensitivity 70 on the 0-100 scale
-let peak=0, lastPeak=0; // deepest point of the current/most recent rep
-const RELEASE=.10, DEBOUNCE=300;
 
 // --- tiny normalized thumbnail of the CENTER of the frame ---
 // cropping out the edges stops static background from drowning out your face
@@ -334,9 +345,8 @@ function loop(){
   elFill.style.background = phase==='down' ? 'var(--down)' : 'var(--signal)';
   const w=4+pct*34, col = phase==='down' ? '63,217,168' : '255,176,32';
   elRing.style.boxShadow=`inset 0 0 0 ${w.toFixed(1)}px rgba(${col},${(.25+pct*.45).toFixed(2)})`;
-  if(elReadout) elReadout.textContent =
-    `depth ${Math.round(pct*100)}  ·  trigger ${Math.round(armAt*100)}` +
-    (lastPeak ? `  ·  last rep ${Math.round(lastPeak*100)}` : '');
+  lastScore=pct;
+  paintReadout();
 }
 </script>
 
