@@ -152,6 +152,7 @@
     </div>
     <div class="row" id="row3" style="display:none">
       <button id="reset">Reset count</button>
+      <button id="resetAll">Reset all</button>
       <button id="save" style="display:none">Save set</button>
     </div>
     <p class="hint" id="hint">Put the phone on the floor under your chest, screen up.</p>
@@ -346,17 +347,21 @@ function countdownCapture(which){
 btnUp.onclick=()=>countdownCapture('up');
 btnDown.onclick=()=>countdownCapture('down');
 btnReset.onclick=()=>{count=0; elCount.textContent='0'; phase='up';};
+document.getElementById('resetAll').onclick=()=>{
+  count=0; elCount.textContent='0';
+  window.clearCalibration();
+};
 
 // hooks for the Firebase module below
 window.getCount=()=>count;
 window.zeroCount=()=>{count=0; elCount.textContent='0'; phase='up';};
-window.clearCalibration=()=>{
+window.clearCalibration=(msg)=>{
   tplUp=null; tplDowns=[]; phase='up'; hold=0; lastPeak=0;
   btnUp.classList.remove('done'); btnUp.textContent='Capture up position';
   btnDown.classList.remove('done'); btnDown.textContent='Capture down position';
   if(running){
     elState.textContent='Needs calibration';
-    elHint.textContent='New workout — capture the up and down positions for this movement.';
+    elHint.textContent = msg || 'Fresh start — capture the up and down positions again.';
   }
 };
 
@@ -485,7 +490,7 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
     try{ localStorage.setItem('activeWorkoutId', id); }catch(e){}
     // unsaved reps belong to the workout you were in, not this one
     window.zeroCount();
-    if(window.clearCalibration) window.clearCalibration();
+    if(window.clearCalibration) window.clearCalibration('New workout — capture the up and down positions for this movement.');
     todayReps = 0; paintToday();
     closeDrawer();
     renderWorkouts();
