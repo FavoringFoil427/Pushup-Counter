@@ -166,10 +166,10 @@
     <span class="eyebrow">Settings</span>
     <div id="sensRow">
       <label id="sensLabel">
-        <span>Sensitivity</span>
-        <input id="sens" type="range" min="0" max="100" value="70">
+        <span id="sensValue">Sensitivity 54</span>
+        <input id="sens" type="range" min="0" max="100" value="54">
       </label>
-      <div id="readout">depth 0 · trigger 49</div>
+      <div id="readout">depth 0 · trigger 55</div>
     </div>
   </div>
 
@@ -199,10 +199,11 @@ const elCount=document.getElementById('count'), elState=document.getElementById(
 const btnStart=document.getElementById('start'), btnUp=document.getElementById('calUp'),
       btnDown=document.getElementById('calDown'), btnReset=document.getElementById('reset');
 const cd=document.getElementById('countdown'), cdnum=document.getElementById('cdnum'), cdtxt=document.getElementById('cdtxt');
-const elReadout=document.getElementById('readout'), elSens=document.getElementById('sens');
+const elReadout=document.getElementById('readout'), elSens=document.getElementById('sens'),
+      elSensValue=document.getElementById('sensValue');
 
 let tplUp=null, tplDown=null, count=0, phase='up', lastFlip=0, busy=false, running=false;
-let armAt=.49;          // sensitivity 70 on the 0-100 scale
+let armAt=.55;          // sensitivity 54 on the 0-100 scale
 let peak=0, lastPeak=0; // deepest point of the current/most recent rep
 let lastScore=0;
 const RELEASE=.10, DEBOUNCE=300;
@@ -211,6 +212,7 @@ const RELEASE=.10, DEBOUNCE=300;
 const sensToArm = val => .75 - (val/100)*.37;
 
 function paintReadout(){
+  elSensValue.textContent = `Sensitivity ${elSens.value}`;
   elReadout.textContent =
     `depth ${Math.round(lastScore*100)}  ·  trigger ${Math.round(armAt*100)}` +
     (lastPeak ? `  ·  last rep ${Math.round(lastPeak*100)}` : '');
