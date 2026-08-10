@@ -228,8 +228,9 @@ const cd=document.getElementById('countdown'), cdnum=document.getElementById('cd
 const elReadout=document.getElementById('readout'), elSens=document.getElementById('sens'),
       elSensValue=document.getElementById('sensValue');
 
-let tplUp=null, tplDowns=[], count=0, phase='up', lastFlip=0, busy=false, running=false;
-const MAX_DOWNS=4;
+let tplUps=[], tplDowns=[], downCaptures=0, count=0, phase='up', lastFlip=0, busy=false, running=false;
+const MAX_DOWNS=4;              // separate down positions (each stores several frames)
+const BURST_N=8, BURST_MS=90, KEEP=3;   // frames sampled per capture, and how many survive
 let armAt=.55;          // sensitivity 54 on the 0-100 scale
 let peak=0, lastPeak=0; // deepest point of the current/most recent rep
 let lastScore=0, hold=0, paused=false;
@@ -286,17 +287,42 @@ function windowAt(g,dx,dy){
 }
 
 // best match over every allowed shift — head drift stops mattering, distance still does
-// down distance = the CLOSEST of all captured down positions (left leg, right leg, ...)
-function bestPair(g,tUp,tDowns){
+// each side = the CLOSEST of its stored frames (burst variations, left leg vs right leg, ...)
+function bestPair(g,tUps,tDowns){
   let du=Infinity, dd=Infinity;
   for(let dy=-SHIFT;dy<=SHIFT;dy++){
     for(let dx=-SHIFT;dx<=SHIFT;dx++){
       const w=windowAt(g,dx,dy);
-      const a=dist(w,tUp); if(a<du) du=a;
+      for(const t of tUps){   const a=dist(w,t); if(a<du) du=a; }
       for(const t of tDowns){ const b=dist(w,t); if(b<dd) dd=b; }
     }
   }
   return [du,dd];
+}
+
+// grab BURST_N frames over ~0.7s, then keep KEEP of them:
+// the most typical frame plus the ones furthest from it, so normal AND sloppy reps match
+function selectFrames(frames){
+  if(frames.length<=KEEP) return frames;
+  const mean=frames.map(f=>{
+    let s=0; for(const o of frames) s+=dist(f,o);
+    return s/frames.length;
+  });
+  // drop the two least typical — usually motion blur or a mid-move frame
+  const ranked=frames.map((f,i)=>({f,m:mean[i]})).sort((a,b)=>a.m-b.m).slice(0,frames.length-2);
+  const medoid=ranked[0].f;
+  const rest=ranked.slice(1).sort((a,b)=>dist(b.f,medoid)-dist(a.f,medoid));
+  return [medoid, ...rest.slice(0,KEEP-1).map(r=>r.f)];
+}
+
+function captureBurst(done){
+  const frames=[];
+  let n=0;
+  const t=setInterval(()=>{
+    const g=grab();
+    if(g) frames.push(windowAt(g,0,0));
+    if(++n>=BURST_N){ clearInterval(t); done(selectFrames(frames)); }
+  },BURST_MS);
 }
 function dist(a,b){let s=0;for(let i=0;i<N;i++){const d=a[i]-b[i];s+=d*d;}return s/N;}
 
@@ -341,29 +367,33 @@ function countdownCapture(which){
     n--;
     if(n>0){cdnum.textContent=n; beep(520,80);}
     else{
-      clearInterval(t); cd.classList.remove('on'); beep(880,160);
-      const g=grab();
-      const f=g ? windowAt(g,0,0) : null;
-      if(f){
-        if(which==='up'){tplUp=f; btnUp.classList.add('done'); btnUp.textContent='Up position set';}
-        else{
-          tplDowns.push(f);
-          if(tplDowns.length>MAX_DOWNS) tplDowns.shift();
-          btnDown.classList.add('done');
-          btnDown.textContent = tplDowns.length===1 ? 'Down position set'
-                                                    : `Down positions (${tplDowns.length})`;
+      clearInterval(t); beep(880,160);
+      cdnum.textContent='•'; cdtxt.textContent='Hold — sampling';
+      captureBurst(frames=>{
+        cd.classList.remove('on');
+        if(frames.length){
+          if(which==='up'){
+            tplUps=frames;
+            btnUp.classList.add('done'); btnUp.textContent='Up position set';
+          }else{
+            tplDowns.push(...frames); downCaptures++;
+            while(downCaptures>MAX_DOWNS){ tplDowns.splice(0,KEEP); downCaptures--; }
+            btnDown.classList.add('done');
+            btnDown.textContent = downCaptures===1 ? 'Down position set'
+                                                   : `Down positions (${downCaptures})`;
+          }
         }
-      }
-      if(tplUp&&tplDowns.length){
-        elState.textContent='Counting'; phase='up';
-        elHint.textContent = tplDowns.length===1
-          ? 'Go. For one-leg moves, capture the down position again on the other side.'
-          : 'Go. A rep lands when you come back up.';
-      }else{
-        elHint.textContent = tplUp ? 'Step 2: tap “Capture down position”, then get your face right up to the camera.'
-                                   : 'Step 1: hold the top of a push-up and tap “Capture up position”.';
-      }
-      busy=false;
+        if(tplUps.length&&tplDowns.length){
+          elState.textContent='Counting'; phase='up';
+          elHint.textContent = downCaptures===1
+            ? 'Go. For one-leg moves, capture the down position again on the other side.'
+            : 'Go. A rep lands when you come back up.';
+        }else{
+          elHint.textContent = tplUps.length ? 'Step 2: tap “Capture down position”, then get your face right up to the camera.'
+                                             : 'Step 1: hold the top of a push-up and tap “Capture up position”.';
+        }
+        busy=false;
+      });
     }
   },1000);
 }
@@ -376,10 +406,10 @@ const optUp=document.getElementById('resetUpOpt'), optDown=document.getElementBy
       optCount=document.getElementById('resetCountOpt');
 
 function calibrationState(){
-  if(tplUp&&tplDowns.length){ elState.textContent='Counting'; }
+  if(tplUps.length&&tplDowns.length){ elState.textContent='Counting'; }
   else{
     elState.textContent='Needs calibration';
-    elHint.textContent = tplUp ? 'Down position cleared — capture it again.'
+    elHint.textContent = tplUps.length ? 'Down position cleared — capture it again.'
              : tplDowns.length ? 'Up position cleared — capture it again.'
                                : 'Capture the up and down positions to start counting.';
   }
@@ -389,8 +419,8 @@ function calibrationState(){
 resetMenuBtn.onclick=(e)=>{
   e.stopPropagation();
   // labels reflect what's actually stored right now
-  optDown.textContent = tplDowns.length>1 ? `Reset down positions (${tplDowns.length})` : 'Reset down position';
-  optUp.disabled = !tplUp;
+  optDown.textContent = downCaptures>1 ? `Reset down positions (${downCaptures})` : 'Reset down position';
+  optUp.disabled = tplUps.length===0;
   optDown.disabled = tplDowns.length===0;
   optCount.disabled = count===0;
   resetMenu.classList.toggle('on');
@@ -398,12 +428,12 @@ resetMenuBtn.onclick=(e)=>{
 document.addEventListener('click',()=>resetMenu.classList.remove('on'));
 
 optUp.onclick=(e)=>{e.stopPropagation(); resetMenu.classList.remove('on');
-  tplUp=null;
+  tplUps=[];
   btnUp.classList.remove('done'); btnUp.textContent='Capture up position';
   calibrationState();
 };
 optDown.onclick=(e)=>{e.stopPropagation(); resetMenu.classList.remove('on');
-  tplDowns=[];
+  tplDowns=[]; downCaptures=0;
   btnDown.classList.remove('done'); btnDown.textContent='Capture down position';
   calibrationState();
 };
@@ -431,14 +461,14 @@ document.getElementById('unpause').onclick=()=>{
   paused=false;
   rowPaused.style.display='none';
   row2.style.display='flex'; row3.style.display='flex'; elHint.style.display='';
-  elState.textContent = (tplUp&&tplDowns.length) ? 'Counting' : 'Needs calibration';
+  elState.textContent = (tplUps.length&&tplDowns.length) ? 'Counting' : 'Needs calibration';
 };
 
 // hooks for the Firebase module below
 window.getCount=()=>count;
 window.zeroCount=()=>{count=0; elCount.textContent='0'; phase='up';};
 window.clearCalibration=(msg)=>{
-  tplUp=null; tplDowns=[]; phase='up'; hold=0; lastPeak=0;
+  tplUps=[]; tplDowns=[]; downCaptures=0; phase='up'; hold=0; lastPeak=0;
   btnUp.classList.remove('done'); btnUp.textContent='Capture up position';
   btnDown.classList.remove('done'); btnDown.textContent='Capture down position';
   if(running){
@@ -454,8 +484,8 @@ function loop(){
   const f=grab(); if(!f) return;
 
   let score=0;
-  if(tplUp&&tplDowns.length){
-    const [du,dd]=bestPair(f,tplUp,tplDowns);
+  if(tplUps.length&&tplDowns.length){
+    const [du,dd]=bestPair(f,tplUps,tplDowns);
     score=du/(du+dd||1);
     const now=performance.now();
 
