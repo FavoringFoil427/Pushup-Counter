@@ -189,10 +189,12 @@
   </div>
 </div>
 
-<canvas id="c" width="16" height="12" style="display:none"></canvas>
+<canvas id="c" width="22" height="18" style="display:none"></canvas>
 
 <script>
-const W=16,H=12,N=W*H;
+const GW=22,GH=18;            // grabbed a bit larger than the compared window...
+const W=16,H=12,N=W*H;        // ...so the window can slide inside it
+const SHIFT=3;                // how far the match may slide to follow your head
 const v=document.getElementById('v'), cv=document.getElementById('c'), ctx=cv.getContext('2d',{willReadFrequently:true});
 const elCount=document.getElementById('count'), elState=document.getElementById('state'),
       elFill=document.getElementById('fill'), elRing=document.getElementById('ring'), elHint=document.getElementById('hint');
@@ -202,11 +204,12 @@ const cd=document.getElementById('countdown'), cdnum=document.getElementById('cd
 const elReadout=document.getElementById('readout'), elSens=document.getElementById('sens'),
       elSensValue=document.getElementById('sensValue');
 
-let tplUp=null, tplDown=null, count=0, phase='up', lastFlip=0, busy=false, running=false;
+let tplUp=null, tplDowns=[], count=0, phase='up', lastFlip=0, busy=false, running=false;
+const MAX_DOWNS=4;
 let armAt=.55;          // sensitivity 54 on the 0-100 scale
 let peak=0, lastPeak=0; // deepest point of the current/most recent rep
-let lastScore=0;
-const RELEASE=.10, DEBOUNCE=300;
+let lastScore=0, hold=0;
+const RELEASE=.10, DEBOUNCE=300, HOLD=3;
 
 // slider right = more sensitive = lower trigger (0.75 down to 0.38)
 const sensToArm = val => .75 - (val/100)*.37;
@@ -230,23 +233,46 @@ elSens.addEventListener('input', () => {
   try{ localStorage.setItem('sensitivity', elSens.value); }catch(e){}
 });
 
-// --- tiny normalized thumbnail of the CENTER of the frame ---
-// cropping out the edges stops static background from drowning out your face
+// --- sample the CENTER of the frame, a bit larger than the window we compare ---
 const CROP=.6;
 function grab(){
   if(v.readyState<2) return null;
   const vw=v.videoWidth, vh=v.videoHeight;
   if(!vw||!vh) return null;
   const sw=vw*CROP, sh=vh*CROP;
-  ctx.drawImage(v,(vw-sw)/2,(vh-sh)/2,sw,sh,0,0,W,H);
-  const d=ctx.getImageData(0,0,W,H).data, a=new Float32Array(N);
+  ctx.drawImage(v,(vw-sw)/2,(vh-sh)/2,sw,sh,0,0,GW,GH);
+  const d=ctx.getImageData(0,0,GW,GH).data, g=new Float32Array(GW*GH);
+  for(let i=0;i<GW*GH;i++){const p=i*4; g[i]=d[p]*.299+d[p+1]*.587+d[p+2]*.114;}
+  return g;
+}
+
+// pull a W×H window at an offset, brightness-normalized so lighting doesn't matter
+function windowAt(g,dx,dy){
+  const ox=((GW-W)>>1)+dx, oy=((GH-H)>>1)+dy, a=new Float32Array(N);
   let m=0;
-  for(let i=0;i<N;i++){const p=i*4; a[i]=(d[p]*.299+d[p+1]*.587+d[p+2]*.114); m+=a[i];}
+  for(let y=0;y<H;y++){
+    const row=(oy+y)*GW+ox;
+    for(let x=0;x<W;x++){ const val=g[row+x]; a[y*W+x]=val; m+=val; }
+  }
   m/=N;
   let s=0; for(let i=0;i<N;i++){a[i]-=m; s+=a[i]*a[i];}
   s=Math.sqrt(s/N)||1;
   for(let i=0;i<N;i++) a[i]/=s;
   return a;
+}
+
+// best match over every allowed shift — head drift stops mattering, distance still does
+// down distance = the CLOSEST of all captured down positions (left leg, right leg, ...)
+function bestPair(g,tUp,tDowns){
+  let du=Infinity, dd=Infinity;
+  for(let dy=-SHIFT;dy<=SHIFT;dy++){
+    for(let dx=-SHIFT;dx<=SHIFT;dx++){
+      const w=windowAt(g,dx,dy);
+      const a=dist(w,tUp); if(a<du) du=a;
+      for(const t of tDowns){ const b=dist(w,t); if(b<dd) dd=b; }
+    }
+  }
+  return [du,dd];
 }
 function dist(a,b){let s=0;for(let i=0;i<N;i++){const d=a[i]-b[i];s+=d*d;}return s/N;}
 
@@ -292,14 +318,23 @@ function countdownCapture(which){
     if(n>0){cdnum.textContent=n; beep(520,80);}
     else{
       clearInterval(t); cd.classList.remove('on'); beep(880,160);
-      const f=grab();
+      const g=grab();
+      const f=g ? windowAt(g,0,0) : null;
       if(f){
         if(which==='up'){tplUp=f; btnUp.classList.add('done'); btnUp.textContent='Up position set';}
-        else{tplDown=f; btnDown.classList.add('done'); btnDown.textContent='Down position set';}
+        else{
+          tplDowns.push(f);
+          if(tplDowns.length>MAX_DOWNS) tplDowns.shift();
+          btnDown.classList.add('done');
+          btnDown.textContent = tplDowns.length===1 ? 'Down position set'
+                                                    : `Down positions (${tplDowns.length})`;
+        }
       }
-      if(tplUp&&tplDown){
+      if(tplUp&&tplDowns.length){
         elState.textContent='Counting'; phase='up';
-        elHint.textContent='Go. A rep lands when you come back up.';
+        elHint.textContent = tplDowns.length===1
+          ? 'Go. For one-leg moves, capture the down position again on the other side.'
+          : 'Go. A rep lands when you come back up.';
       }else{
         elHint.textContent = tplUp ? 'Step 2: tap “Capture down position”, then get your face right up to the camera.'
                                    : 'Step 1: hold the top of a push-up and tap “Capture up position”.';
@@ -315,6 +350,15 @@ btnReset.onclick=()=>{count=0; elCount.textContent='0'; phase='up';};
 // hooks for the Firebase module below
 window.getCount=()=>count;
 window.zeroCount=()=>{count=0; elCount.textContent='0'; phase='up';};
+window.clearCalibration=()=>{
+  tplUp=null; tplDowns=[]; phase='up'; hold=0; lastPeak=0;
+  btnUp.classList.remove('done'); btnUp.textContent='Capture up position';
+  btnDown.classList.remove('done'); btnDown.textContent='Capture down position';
+  if(running){
+    elState.textContent='Needs calibration';
+    elHint.textContent='New workout — capture the up and down positions for this movement.';
+  }
+};
 
 function loop(){
   if(!running) return;
@@ -323,19 +367,20 @@ function loop(){
   const f=grab(); if(!f) return;
 
   let score=0;
-  if(tplUp&&tplDown){
-    const du=dist(f,tplUp), dd=dist(f,tplDown);
+  if(tplUp&&tplDowns.length){
+    const [du,dd]=bestPair(f,tplUp,tplDowns);
     score=du/(du+dd||1);
     const now=performance.now();
 
     if(phase==='up'){
-      // start of a rep: got deep enough to arm
-      if(score>armAt && now-lastFlip>DEBOUNCE){ phase='down'; peak=score; lastFlip=now; beep(340,60); }
+      // must stay past the trigger a few frames — a head twitch won't do it
+      hold = score>armAt ? hold+1 : 0;
+      if(hold>=HOLD && now-lastFlip>DEBOUNCE){ phase='down'; peak=score; hold=0; lastFlip=now; beep(340,60); }
     }else{
       if(score>peak) peak=score;          // track the deepest point YOU reached
       // rep ends when you've come back up meaningfully from that point
       if(score < peak-RELEASE && score < armAt && now-lastFlip>DEBOUNCE){
-        phase='up'; lastFlip=now; lastPeak=peak; count++;
+        phase='up'; hold=0; lastFlip=now; lastPeak=peak; count++;
         elCount.textContent=count;
         elCount.classList.remove('pop'); void elCount.offsetWidth; elCount.classList.add('pop');
         beep(900,130);
@@ -440,6 +485,7 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
     try{ localStorage.setItem('activeWorkoutId', id); }catch(e){}
     // unsaved reps belong to the workout you were in, not this one
     window.zeroCount();
+    if(window.clearCalibration) window.clearCalibration();
     todayReps = 0; paintToday();
     closeDrawer();
     renderWorkouts();
