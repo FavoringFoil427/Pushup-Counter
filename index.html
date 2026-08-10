@@ -79,6 +79,14 @@
   button.done{border-color:var(--down);color:var(--down)}
   .hint{font-size:12px;line-height:1.45;color:var(--dim);text-align:center;padding:0 4px}
 
+  #sensRow{display:flex;flex-direction:column;gap:6px}
+  #readout{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center}
+  #sensLabel{display:flex;align-items:center;gap:12px;font-size:12px;color:var(--dim)}
+  #sensLabel span{flex:0 0 auto;letter-spacing:.08em;text-transform:uppercase;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  #sens{flex:1 1 auto;accent-color:var(--signal);height:28px}
+
   #countdown{position:absolute;inset:0;z-index:3;display:none;place-items:center;background:rgba(2,20,25,.82)}
   #countdown.on{display:grid}
   #cdnum{font-size:34vh;font-weight:900;color:var(--signal);line-height:1}
@@ -144,6 +152,13 @@
       <button id="reset">Reset count</button>
       <button id="save" style="display:none">Save set</button>
     </div>
+    <div id="sensRow" style="display:none">
+      <div id="readout">depth 0 · trigger 55</div>
+      <label id="sensLabel">
+        <span>Sensitivity</span>
+        <input id="sens" type="range" min="0" max="100" value="50">
+      </label>
+    </div>
     <p class="hint" id="hint">Put the phone on the floor under your chest, screen up.</p>
   </div>
 
@@ -176,14 +191,25 @@ const elCount=document.getElementById('count'), elState=document.getElementById(
 const btnStart=document.getElementById('start'), btnUp=document.getElementById('calUp'),
       btnDown=document.getElementById('calDown'), btnReset=document.getElementById('reset');
 const cd=document.getElementById('countdown'), cdnum=document.getElementById('cdnum'), cdtxt=document.getElementById('cdtxt');
+const elReadout=document.getElementById('readout'), elSens=document.getElementById('sens');
+
+// slider right = more sensitive = lower trigger (0.75 down to 0.38)
+elSens.addEventListener('input', () => { armAt = .75 - (elSens.value/100)*.37; });
 
 let tplUp=null, tplDown=null, count=0, phase='up', lastFlip=0, busy=false, running=false;
-const DOWN_AT=.62, UP_AT=.38, DEBOUNCE=350;
+let armAt=.55;          // how deep a rep has to read before it counts as "going down"
+let peak=0, lastPeak=0; // deepest point of the current/most recent rep
+const RELEASE=.10, DEBOUNCE=300;
 
-// --- tiny normalized thumbnail: lighting- and skin-tone-agnostic ---
+// --- tiny normalized thumbnail of the CENTER of the frame ---
+// cropping out the edges stops static background from drowning out your face
+const CROP=.6;
 function grab(){
   if(v.readyState<2) return null;
-  ctx.drawImage(v,0,0,W,H);
+  const vw=v.videoWidth, vh=v.videoHeight;
+  if(!vw||!vh) return null;
+  const sw=vw*CROP, sh=vh*CROP;
+  ctx.drawImage(v,(vw-sw)/2,(vh-sh)/2,sw,sh,0,0,W,H);
   const d=ctx.getImageData(0,0,W,H).data, a=new Float32Array(N);
   let m=0;
   for(let i=0;i<N;i++){const p=i*4; a[i]=(d[p]*.299+d[p+1]*.587+d[p+2]*.114); m+=a[i];}
@@ -217,6 +243,7 @@ btnStart.onclick=async()=>{
     document.getElementById('row1').style.display='none';
     document.getElementById('row2').style.display='flex';
     document.getElementById('row3').style.display='flex';
+    document.getElementById('sensRow').style.display='flex';
     elState.textContent='Needs calibration';
     elHint.textContent='Step 1: hold the top of a push-up and tap “Capture up position”.';
     beep(660,90);
@@ -272,10 +299,15 @@ function loop(){
     const du=dist(f,tplUp), dd=dist(f,tplDown);
     score=du/(du+dd||1);
     const now=performance.now();
-    if(now-lastFlip>DEBOUNCE){
-      if(phase==='up'&&score>DOWN_AT){phase='down'; lastFlip=now; beep(340,60);}
-      else if(phase==='down'&&score<UP_AT){
-        phase='up'; lastFlip=now; count++;
+
+    if(phase==='up'){
+      // start of a rep: got deep enough to arm
+      if(score>armAt && now-lastFlip>DEBOUNCE){ phase='down'; peak=score; lastFlip=now; beep(340,60); }
+    }else{
+      if(score>peak) peak=score;          // track the deepest point YOU reached
+      // rep ends when you've come back up meaningfully from that point
+      if(score < peak-RELEASE && score < armAt && now-lastFlip>DEBOUNCE){
+        phase='up'; lastFlip=now; lastPeak=peak; count++;
         elCount.textContent=count;
         elCount.classList.remove('pop'); void elCount.offsetWidth; elCount.classList.add('pop');
         beep(900,130);
@@ -287,6 +319,9 @@ function loop(){
   elFill.style.background = phase==='down' ? 'var(--down)' : 'var(--signal)';
   const w=4+pct*34, col = phase==='down' ? '63,217,168' : '255,176,32';
   elRing.style.boxShadow=`inset 0 0 0 ${w.toFixed(1)}px rgba(${col},${(.25+pct*.45).toFixed(2)})`;
+  if(elReadout) elReadout.textContent =
+    `depth ${Math.round(pct*100)}  ·  trigger ${Math.round(armAt*100)}` +
+    (lastPeak ? `  ·  last rep ${Math.round(lastPeak*100)}` : '');
 }
 </script>
 
@@ -331,8 +366,10 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
 
   async function loadToday(){
     if(!activeWorkoutId) return;
+    const forId = activeWorkoutId;
     try{
       const snap = await getDoc(todayRef());
+      if(forId !== activeWorkoutId) return; // switched again while this was in flight
       todayReps = snap.exists() ? (snap.data().reps || 0) : 0;
       paintToday();
     }catch(e){ console.warn('Read failed', e); }
@@ -369,10 +406,14 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
   }
 
   function selectWorkout(id){
+    if(id === activeWorkoutId){ closeDrawer(); return; }
     activeWorkoutId = id;
     const w = workouts.find(x => x.id === id);
     workoutLabel.textContent = w ? w.name : '';
     try{ localStorage.setItem('activeWorkoutId', id); }catch(e){}
+    // unsaved reps belong to the workout you were in, not this one
+    window.zeroCount();
+    todayReps = 0; paintToday();
     closeDrawer();
     renderWorkouts();
     loadToday();
