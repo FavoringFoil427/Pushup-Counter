@@ -79,13 +79,15 @@
   button.done{border-color:var(--down);color:var(--down)}
   .hint{font-size:12px;line-height:1.45;color:var(--dim);text-align:center;padding:0 4px}
 
-  #sensRow{display:flex;flex-direction:column;gap:6px}
+  #sensRow{display:flex;flex-direction:column;gap:8px}
+  .drawerSection{display:flex;flex-direction:column;gap:12px}
+  .drawerDivider{height:1px;background:rgba(234,242,240,.16);margin:2px 0}
   #readout{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);
-    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center}
-  #sensLabel{display:flex;align-items:center;gap:12px;font-size:12px;color:var(--dim)}
-  #sensLabel span{flex:0 0 auto;letter-spacing:.08em;text-transform:uppercase;
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-  #sens{flex:1 1 auto;accent-color:var(--signal);height:28px}
+  #sensLabel{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--dim)}
+  #sensLabel span{letter-spacing:.08em;text-transform:uppercase;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  #sens{width:100%;accent-color:var(--signal);height:28px}
 
   #countdown{position:absolute;inset:0;z-index:3;display:none;place-items:center;background:rgba(2,20,25,.82)}
   #countdown.on{display:grid}
@@ -152,13 +154,6 @@
       <button id="reset">Reset count</button>
       <button id="save" style="display:none">Save set</button>
     </div>
-    <div id="sensRow" style="display:none">
-      <div id="readout">depth 0 · trigger 55</div>
-      <label id="sensLabel">
-        <span>Sensitivity</span>
-        <input id="sens" type="range" min="0" max="100" value="50">
-      </label>
-    </div>
     <p class="hint" id="hint">Put the phone on the floor under your chest, screen up.</p>
   </div>
 
@@ -167,6 +162,19 @@
 
 <div id="drawerBackdrop"></div>
 <div id="drawer">
+  <div class="drawerSection">
+    <span class="eyebrow">Settings</span>
+    <div id="sensRow">
+      <label id="sensLabel">
+        <span>Sensitivity</span>
+        <input id="sens" type="range" min="0" max="100" value="70">
+      </label>
+      <div id="readout">depth 0 · trigger 49</div>
+    </div>
+  </div>
+
+  <div class="drawerDivider"></div>
+
   <div id="drawerHead">
     <span class="eyebrow">Workouts</span>
     <button id="addWorkoutBtn" aria-label="Add workout">+</button>
@@ -194,10 +202,18 @@ const cd=document.getElementById('countdown'), cdnum=document.getElementById('cd
 const elReadout=document.getElementById('readout'), elSens=document.getElementById('sens');
 
 // slider right = more sensitive = lower trigger (0.75 down to 0.38)
-elSens.addEventListener('input', () => { armAt = .75 - (elSens.value/100)*.37; });
+const sensToArm = val => .75 - (val/100)*.37;
+try{
+  const saved = localStorage.getItem('sensitivity');
+  if(saved !== null){ elSens.value = saved; armAt = sensToArm(saved); }
+}catch(e){}
+elSens.addEventListener('input', () => {
+  armAt = sensToArm(elSens.value);
+  try{ localStorage.setItem('sensitivity', elSens.value); }catch(e){}
+});
 
 let tplUp=null, tplDown=null, count=0, phase='up', lastFlip=0, busy=false, running=false;
-let armAt=.55;          // how deep a rep has to read before it counts as "going down"
+let armAt=.49;          // sensitivity 70 on the 0-100 scale
 let peak=0, lastPeak=0; // deepest point of the current/most recent rep
 const RELEASE=.10, DEBOUNCE=300;
 
@@ -243,7 +259,6 @@ btnStart.onclick=async()=>{
     document.getElementById('row1').style.display='none';
     document.getElementById('row2').style.display='flex';
     document.getElementById('row3').style.display='flex';
-    document.getElementById('sensRow').style.display='flex';
     elState.textContent='Needs calibration';
     elHint.textContent='Step 1: hold the top of a push-up and tap “Capture up position”.';
     beep(660,90);
