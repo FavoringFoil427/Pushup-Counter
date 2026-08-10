@@ -89,6 +89,18 @@
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
   #sens{width:100%;accent-color:var(--signal);height:28px}
 
+  #resetWrap{position:relative;flex:1;display:flex}
+  #resetWrap button{flex:1}
+  #resetMenu{display:none;position:absolute;bottom:calc(100% + 8px);left:0;right:0;z-index:6;
+    background:var(--deep);border:1px solid rgba(234,242,240,.22);border-radius:14px;
+    overflow:hidden;box-shadow:0 10px 30px rgba(2,20,25,.7);
+    flex-direction:column}
+  #resetMenu.on{display:flex}
+  #resetMenu button{border:none;border-radius:0;background:transparent;text-align:left;
+    padding:13px 14px;font-size:13px}
+  #resetMenu button:not(:last-child){border-bottom:1px solid rgba(234,242,240,.12)}
+  #resetMenu button:disabled{opacity:.35}
+
   #countdown{position:absolute;inset:0;z-index:3;display:none;place-items:center;background:rgba(2,20,25,.82)}
   #countdown.on{display:grid}
   #cdnum{font-size:34vh;font-weight:900;color:var(--signal);line-height:1}
@@ -151,7 +163,14 @@
       <button id="calDown">Capture down position</button>
     </div>
     <div class="row" id="row3" style="display:none">
-      <button id="reset">Reset count</button>
+      <div id="resetWrap">
+        <button id="resetMenuBtn">Reset</button>
+        <div id="resetMenu">
+          <button id="resetUpOpt">Reset up position</button>
+          <button id="resetDownOpt">Reset down position</button>
+          <button id="resetCountOpt">Reset count</button>
+        </div>
+      </div>
       <button id="resetAll">Reset all</button>
       <button id="save" style="display:none">Save set</button>
     </div>
@@ -200,7 +219,7 @@ const v=document.getElementById('v'), cv=document.getElementById('c'), ctx=cv.ge
 const elCount=document.getElementById('count'), elState=document.getElementById('state'),
       elFill=document.getElementById('fill'), elRing=document.getElementById('ring'), elHint=document.getElementById('hint');
 const btnStart=document.getElementById('start'), btnUp=document.getElementById('calUp'),
-      btnDown=document.getElementById('calDown'), btnReset=document.getElementById('reset');
+      btnDown=document.getElementById('calDown');
 const cd=document.getElementById('countdown'), cdnum=document.getElementById('cdnum'), cdtxt=document.getElementById('cdtxt');
 const elReadout=document.getElementById('readout'), elSens=document.getElementById('sens'),
       elSensValue=document.getElementById('sensValue');
@@ -346,7 +365,48 @@ function countdownCapture(which){
 }
 btnUp.onclick=()=>countdownCapture('up');
 btnDown.onclick=()=>countdownCapture('down');
-btnReset.onclick=()=>{count=0; elCount.textContent='0'; phase='up';};
+
+// ── reset dropdown ──
+const resetMenuBtn=document.getElementById('resetMenuBtn'), resetMenu=document.getElementById('resetMenu');
+const optUp=document.getElementById('resetUpOpt'), optDown=document.getElementById('resetDownOpt'),
+      optCount=document.getElementById('resetCountOpt');
+
+function calibrationState(){
+  if(tplUp&&tplDowns.length){ elState.textContent='Counting'; }
+  else{
+    elState.textContent='Needs calibration';
+    elHint.textContent = tplUp ? 'Down position cleared — capture it again.'
+             : tplDowns.length ? 'Up position cleared — capture it again.'
+                               : 'Capture the up and down positions to start counting.';
+  }
+  phase='up'; hold=0;
+}
+
+resetMenuBtn.onclick=(e)=>{
+  e.stopPropagation();
+  // labels reflect what's actually stored right now
+  optDown.textContent = tplDowns.length>1 ? `Reset down positions (${tplDowns.length})` : 'Reset down position';
+  optUp.disabled = !tplUp;
+  optDown.disabled = tplDowns.length===0;
+  optCount.disabled = count===0;
+  resetMenu.classList.toggle('on');
+};
+document.addEventListener('click',()=>resetMenu.classList.remove('on'));
+
+optUp.onclick=(e)=>{e.stopPropagation(); resetMenu.classList.remove('on');
+  tplUp=null;
+  btnUp.classList.remove('done'); btnUp.textContent='Capture up position';
+  calibrationState();
+};
+optDown.onclick=(e)=>{e.stopPropagation(); resetMenu.classList.remove('on');
+  tplDowns=[];
+  btnDown.classList.remove('done'); btnDown.textContent='Capture down position';
+  calibrationState();
+};
+optCount.onclick=(e)=>{e.stopPropagation(); resetMenu.classList.remove('on');
+  count=0; elCount.textContent='0'; phase='up';
+};
+
 document.getElementById('resetAll').onclick=()=>{
   count=0; elCount.textContent='0';
   window.clearCalibration();
