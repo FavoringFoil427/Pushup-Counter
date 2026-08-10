@@ -35,10 +35,15 @@
 
   #top{flex:0 0 auto;padding:12px 18px;
     padding-top:calc(12px + env(safe-area-inset-top));
-    display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+    display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .topLeft{display:flex;align-items:center;gap:10px;min-width:0}
+  #menuBtn{flex:0 0 auto;width:34px;height:34px;padding:0;border:none;background:transparent;
+    display:flex;flex-direction:column;justify-content:center;align-items:center;gap:5px;cursor:pointer}
+  #menuBtn span{display:block;width:20px;height:2px;background:var(--paper);border-radius:2px}
+  #workoutLabel{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .eyebrow{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-  #state{color:var(--signal)}
+  #state{color:var(--signal);flex:0 0 auto}
 
   #count{flex:1 1 auto;display:flex;align-items:center;justify-content:center;min-height:0;
     text-align:center;font-size:clamp(72px,20vh,220px);line-height:1;font-weight:900;
@@ -79,6 +84,31 @@
   #cdnum{font-size:34vh;font-weight:900;color:var(--signal);line-height:1}
   #cdtxt{position:absolute;bottom:22%;left:0;right:0;text-align:center;font-size:15px;color:var(--paper)}
 
+  #drawerBackdrop{position:fixed;inset:0;background:rgba(2,20,25,.6);
+    opacity:0;pointer-events:none;transition:opacity .2s;z-index:4}
+  #drawerBackdrop.on{opacity:1;pointer-events:auto}
+
+  #drawer{position:fixed;top:0;left:0;bottom:0;width:min(78vw,320px);
+    background:var(--deep);border-right:1px solid rgba(234,242,240,.14);
+    transform:translateX(-100%);transition:transform .25s ease;z-index:5;
+    padding:calc(16px + env(safe-area-inset-top)) 16px 16px;
+    display:flex;flex-direction:column;gap:14px;overflow-y:auto}
+  #drawer.on{transform:translateX(0)}
+  #drawerHead{display:flex;justify-content:space-between;align-items:center}
+  #addWorkoutBtn{flex:0 0 auto;width:30px;height:30px;padding:0;border-radius:8px;
+    border:1px solid rgba(234,242,240,.22);background:rgba(234,242,240,.06);
+    color:var(--signal);font-size:18px;font-weight:800;line-height:1}
+  #workoutList{display:flex;flex-direction:column;gap:8px}
+  .workoutItem{width:100%;flex:none;padding:12px;text-align:left;
+    border:1px solid rgba(234,242,240,.14);border-radius:12px;
+    background:rgba(234,242,240,.04);font-size:14px;font-weight:600}
+  .workoutItem.active{border-color:var(--signal);color:var(--signal)}
+  .workoutEmpty{font-size:12px;color:var(--dim);text-align:center;padding:16px 0}
+  #addWorkoutForm{display:none;flex-direction:column;gap:8px}
+  #newWorkoutName{padding:12px;border-radius:10px;border:1px solid rgba(234,242,240,.22);
+    background:rgba(234,242,240,.06);color:var(--paper);font-size:14px;width:100%}
+  #addWorkoutForm .row button{padding:10px}
+
   @media (prefers-reduced-motion:reduce){#count.pop{animation:none}}
 </style>
 </head>
@@ -89,7 +119,10 @@
   <div id="ring"></div>
 
   <div id="top">
-    <span class="eyebrow">Push-ups</span>
+    <div class="topLeft">
+      <button id="menuBtn" aria-label="Workouts"><span></span><span></span><span></span></button>
+      <span class="eyebrow" id="workoutLabel">Push-ups</span>
+    </div>
     <span class="eyebrow" id="state">Camera off</span>
   </div>
 
@@ -115,6 +148,22 @@
   </div>
 
   <div id="countdown"><div id="cdnum">3</div><div id="cdtxt">Hold still</div></div>
+</div>
+
+<div id="drawerBackdrop"></div>
+<div id="drawer">
+  <div id="drawerHead">
+    <span class="eyebrow">Workouts</span>
+    <button id="addWorkoutBtn" aria-label="Add workout">+</button>
+  </div>
+  <div id="workoutList"></div>
+  <div id="addWorkoutForm">
+    <input id="newWorkoutName" type="text" placeholder="Workout name" maxlength="40">
+    <div class="row">
+      <button id="confirmAddWorkout" class="primary">Add</button>
+      <button id="cancelAddWorkout">Cancel</button>
+    </div>
+  </div>
 </div>
 
 <canvas id="c" width="16" height="12" style="display:none"></canvas>
@@ -257,8 +306,8 @@ const firebaseConfig = {
   appId: "1:1024118983641:web:c6d0e8f9abe3261b8da7c8"
 };
 
-const btnSave = document.getElementById('save');
 const elToday = document.getElementById('today');
+const btnSave = document.getElementById('save');
 
 if (firebaseConfig.apiKey === "PASTE_ME") {
   console.log("Firebase not configured — saving is off.");
@@ -266,7 +315,7 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
   const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
   const { getAuth, signInAnonymously, onAuthStateChanged } =
     await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
-  const { getFirestore, doc, getDoc, setDoc, increment } =
+  const { getFirestore, doc, getDoc, setDoc, increment, collection, getDocs } =
     await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
 
   const app = initializeApp(firebaseConfig);
@@ -275,11 +324,13 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
 
   const dayKey = () => new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local time
   let uid = null, todayReps = 0;
+  let workouts = [], activeWorkoutId = null;
 
-  const todayRef = () => doc(db, 'users', uid, 'sessions', dayKey());
+  const todayRef = () => doc(db, 'users', uid, 'workouts', activeWorkoutId, 'sessions', dayKey());
   const paintToday = () => { elToday.textContent = `Today ${todayReps}`; elToday.classList.add('on'); };
 
   async function loadToday(){
+    if(!activeWorkoutId) return;
     try{
       const snap = await getDoc(todayRef());
       todayReps = snap.exists() ? (snap.data().reps || 0) : 0;
@@ -287,19 +338,99 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
     }catch(e){ console.warn('Read failed', e); }
   }
 
+  // ── workout drawer ──────────────────────────────────────────
+  const menuBtn = document.getElementById('menuBtn');
+  const drawer = document.getElementById('drawer');
+  const backdrop = document.getElementById('drawerBackdrop');
+  const workoutListEl = document.getElementById('workoutList');
+  const workoutLabel = document.getElementById('workoutLabel');
+  const addWorkoutBtn = document.getElementById('addWorkoutBtn');
+  const addForm = document.getElementById('addWorkoutForm');
+  const newNameInput = document.getElementById('newWorkoutName');
+
+  function openDrawer(){ drawer.classList.add('on'); backdrop.classList.add('on'); }
+  function closeDrawer(){ drawer.classList.remove('on'); backdrop.classList.remove('on'); addForm.style.display='none'; }
+  menuBtn.onclick = openDrawer;
+  backdrop.onclick = closeDrawer;
+
+  function renderWorkouts(){
+    workoutListEl.innerHTML = '';
+    if(workouts.length === 0){
+      workoutListEl.innerHTML = '<div class="workoutEmpty">No workouts yet — tap + to add one.</div>';
+      return;
+    }
+    workouts.forEach(w => {
+      const btn = document.createElement('button');
+      btn.className = 'workoutItem' + (w.id === activeWorkoutId ? ' active' : '');
+      btn.textContent = w.name;
+      btn.onclick = () => selectWorkout(w.id);
+      workoutListEl.appendChild(btn);
+    });
+  }
+
+  function selectWorkout(id){
+    activeWorkoutId = id;
+    const w = workouts.find(x => x.id === id);
+    workoutLabel.textContent = w ? w.name : '';
+    try{ localStorage.setItem('activeWorkoutId', id); }catch(e){}
+    closeDrawer();
+    renderWorkouts();
+    loadToday();
+  }
+
+  addWorkoutBtn.onclick = () => { addForm.style.display='flex'; newNameInput.value=''; newNameInput.focus(); };
+  document.getElementById('cancelAddWorkout').onclick = () => { addForm.style.display='none'; };
+  document.getElementById('confirmAddWorkout').onclick = addWorkout;
+  newNameInput.addEventListener('keydown', e => { if(e.key === 'Enter') addWorkout(); });
+
+  function addWorkout(){
+    const name = newNameInput.value.trim();
+    if(!name) return;
+    const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
+    workouts.push({ id, name });
+    addForm.style.display = 'none';
+    selectWorkout(id);
+    if(uid){
+      setDoc(doc(db,'users',uid,'workouts',id), { name, createdAt: Date.now() })
+        .catch(e => console.warn('Workout save failed', e));
+    }
+  }
+
+  async function loadWorkouts(){
+    try{
+      const snap = await getDocs(collection(db,'users',uid,'workouts'));
+      workouts = snap.docs.map(d => ({ id: d.id, name: d.data().name }));
+    }catch(e){ console.warn('Workout list load failed', e); }
+
+    if(workouts.length === 0){
+      // seed a default so the app is usable before you've made any workouts
+      const id = 'pushups';
+      workouts = [{ id, name: 'Push-ups' }];
+      setDoc(doc(db,'users',uid,'workouts',id), { name:'Push-ups', createdAt: Date.now() })
+        .catch(e => console.warn('Default workout save failed', e));
+    }
+
+    const saved = (() => { try{ return localStorage.getItem('activeWorkoutId'); }catch(e){ return null; } })();
+    activeWorkoutId = workouts.find(w => w.id === saved) ? saved : workouts[0].id;
+    workoutLabel.textContent = workouts.find(w => w.id === activeWorkoutId).name;
+    renderWorkouts();
+    loadToday();
+  }
+  // ─────────────────────────────────────────────────────────────
+
   signInAnonymously(auth).catch(e => console.warn('Sign-in failed', e));
   onAuthStateChanged(auth, user => {
     if(!user) return;
     uid = user.uid;
     btnSave.style.display = '';
-    loadToday();
+    loadWorkouts();
   });
 
   btnSave.onclick = () => {
     const reps = window.getCount();
     if(!uid || reps === 0) return;
 
-    // update the screen now; let the write finish in the background
+    // screen updates now; the write finishes in the background
     todayReps += reps;
     paintToday();
     window.zeroCount();
