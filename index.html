@@ -101,6 +101,12 @@
   #resetMenu button:not(:last-child){border-bottom:1px solid rgba(234,242,240,.12)}
   #resetMenu button:disabled{opacity:.35}
 
+  .typeBtn{padding:10px;font-size:12px;letter-spacing:.04em}
+  .typeBtn.on{border-color:var(--signal);color:var(--signal);background:rgba(255,176,32,.12)}
+  .workoutTag{font-size:10px;letter-spacing:.14em;color:var(--dim);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;display:block;margin-top:3px}
+  #count.timer{font-size:clamp(56px,14vh,150px);letter-spacing:-.02em}
+
   #countdown{position:absolute;inset:0;z-index:3;display:none;place-items:center;background:rgba(2,20,25,.82)}
   #countdown.on{display:grid}
   #cdnum{font-size:34vh;font-weight:900;color:var(--signal);line-height:1}
@@ -178,6 +184,10 @@
       <button id="save" style="display:none">Save set</button>
       <button id="unpause" class="primary">Unpause</button>
     </div>
+    <div class="row" id="rowHold" style="display:none">
+      <button id="holdSet">Set position</button>
+      <button id="holdStart" class="primary">Start</button>
+    </div>
     <p class="hint" id="hint">Put the phone on the floor under your chest, screen up.</p>
   </div>
 
@@ -206,6 +216,10 @@
   <div id="workoutList"></div>
   <div id="addWorkoutForm">
     <input id="newWorkoutName" type="text" placeholder="Workout name" maxlength="40">
+    <div class="row" id="typeChoice">
+      <button id="typeReps" class="typeBtn on">Reps</button>
+      <button id="typeHold" class="typeBtn">Hold position</button>
+    </div>
     <div class="row">
       <button id="confirmAddWorkout" class="primary">Add</button>
       <button id="cancelAddWorkout">Cancel</button>
@@ -227,6 +241,9 @@ const btnStart=document.getElementById('start'), btnUp=document.getElementById('
 const cd=document.getElementById('countdown'), cdnum=document.getElementById('cdnum'), cdtxt=document.getElementById('cdtxt');
 const elReadout=document.getElementById('readout'), elSens=document.getElementById('sens'),
       elSensValue=document.getElementById('sensValue');
+const elCountLabel=document.getElementById('countlabel');
+const row2=document.getElementById('row2'), row3=document.getElementById('row3'),
+      rowPaused=document.getElementById('rowPaused');
 
 let tplUps=[], tplDowns=[], downCaptures=0, count=0, phase='up', lastFlip=0, busy=false, running=false;
 const MAX_DOWNS=4;              // separate down positions (each stores several frames)
@@ -235,6 +252,12 @@ let armAt=.55;          // sensitivity 54 on the 0-100 scale
 let peak=0, lastPeak=0; // deepest point of the current/most recent rep
 let lastScore=0, hold=0, paused=false;
 const RELEASE=.10, DEBOUNCE=300, HOLD=3;
+
+// ── hold-position (plank) mode ──
+let mode='reps';
+let tplHold=[], holdBase=0, holdRunning=false, holdT0=0, holdBreak=0, lastDrift=0;
+const BREAK_FRAMES=8;   // ~0.25s of broken form before the clock stops
+const GRACE_MS=800;     // settle time right after the timer starts
 
 // slider right = more sensitive = lower trigger (0.75 down to 0.38)
 const sensToArm = val => .75 - (val/100)*.37;
@@ -300,6 +323,18 @@ function bestPair(g,tUps,tDowns){
   return [du,dd];
 }
 
+// closest match to any one stored frame, over every allowed shift
+function bestOne(g,tpls){
+  let best=Infinity;
+  for(let dy=-SHIFT;dy<=SHIFT;dy++){
+    for(let dx=-SHIFT;dx<=SHIFT;dx++){
+      const w=windowAt(g,dx,dy);
+      for(const t of tpls){ const d=dist(w,t); if(d<best) best=d; }
+    }
+  }
+  return best;
+}
+
 // grab BURST_N frames over ~0.7s, then keep KEEP of them:
 // the most typical frame plus the ones furthest from it, so normal AND sloppy reps match
 function selectFrames(frames){
@@ -348,8 +383,14 @@ btnStart.onclick=async()=>{
     document.getElementById('row1').style.display='none';
     document.getElementById('row2').style.display='flex';
     document.getElementById('row3').style.display='flex';
-    elState.textContent='Needs calibration';
-    elHint.textContent='Step 1: hold the top of a push-up and tap “Capture up position”.';
+    applyPanel();
+    if(mode==='hold'){
+      elState.textContent = tplHold.length ? 'Ready' : 'Needs position';
+      elHint.textContent='Tap “Set position” while holding the position you want to track.';
+    }else{
+      elState.textContent='Needs calibration';
+      elHint.textContent='Step 1: hold the top of a push-up and tap “Capture up position”.';
+    }
     beep(660,90);
     loop();
   }catch(e){
@@ -441,14 +482,115 @@ optCount.onclick=(e)=>{e.stopPropagation(); resetMenu.classList.remove('on');
   count=0; elCount.textContent='0'; phase='up';
 };
 
+// ── hold-position mode ────────────────────────────────────
+const rowHold=document.getElementById('rowHold'),
+      btnHoldSet=document.getElementById('holdSet'),
+      btnHoldStart=document.getElementById('holdStart');
+
+const fmt=ms=>{
+  const t=Math.max(0,ms)/1000;
+  const m=Math.floor(t/60), s=t-m*60;
+  return m>0 ? `${m}:${s.toFixed(1).padStart(4,'0')}` : s.toFixed(1);
+};
+
+// how far you may drift from the captured position before it counts as failing
+function breakAt(){
+  const tol = 1.5 + ((armAt-.38)/.37)*3;     // sensitivity slider scales it
+  return Math.min(1.2, Math.max(.12, holdBase*tol + .12));
+}
+
+function applyPanel(){
+  if(!running) return;
+  const holdMode = mode==='hold';
+  row2.style.display  = (holdMode||paused) ? 'none' : 'flex';
+  row3.style.display  = (holdMode||paused) ? 'none' : 'flex';
+  rowHold.style.display = (holdMode && !holdRunning) ? 'flex' : 'none';
+  rowPaused.style.display = (!holdMode && paused) ? 'flex' : 'none';
+  elHint.style.display = holdRunning ? 'none' : '';
+  elCount.classList.toggle('timer', holdMode);
+  elCountLabel.textContent = holdMode ? 'hold time' : 'reps';
+}
+
+btnHoldSet.onclick=()=>{
+  if(busy) return; busy=true;
+  cd.classList.add('on'); cdtxt.textContent='Get into the position and hold';
+  let n=3; cdnum.textContent=n; beep(520,80);
+  const t=setInterval(()=>{
+    n--;
+    if(n>0){cdnum.textContent=n; beep(520,80);}
+    else{
+      clearInterval(t); beep(880,160);
+      cdnum.textContent='•'; cdtxt.textContent='Hold — sampling';
+      captureBurst(frames=>{
+        cd.classList.remove('on');
+        if(frames.length){
+          tplHold=frames;
+          // typical wobble while holding still — the baseline a break is measured against
+          let b=0; for(const f of frames) b=Math.max(b,dist(f,frames[0]));
+          holdBase=b;
+          btnHoldSet.classList.add('done'); btnHoldSet.textContent='Position set';
+          elState.textContent='Ready';
+          elHint.textContent='Tap Start, then get back into position — the clock begins after the countdown.';
+        }
+        busy=false;
+      });
+    }
+  },1000);
+};
+
+btnHoldStart.onclick=()=>{
+  if(busy||!tplHold.length){
+    if(!tplHold.length) elHint.textContent='Set the position first.';
+    return;
+  }
+  busy=true;
+  cd.classList.add('on'); cdtxt.textContent='Get into position';
+  let n=3; cdnum.textContent=n; beep(520,80);
+  const t=setInterval(()=>{
+    n--;
+    if(n>0){cdnum.textContent=n; beep(520,80);}
+    else{
+      clearInterval(t); cd.classList.remove('on'); beep(880,160);
+      busy=false;
+      holdRunning=true; holdT0=performance.now(); holdBreak=0;
+      elState.textContent='Holding';
+      applyPanel();
+    }
+  },1000);
+};
+
+function endHold(){
+  const ms=performance.now()-holdT0;
+  holdRunning=false; holdBreak=0;
+  elCount.textContent=fmt(ms);
+  elState.textContent='Done';
+  beep(300,400);
+  applyPanel();
+  elHint.textContent=`Held ${fmt(ms)}. Tap Start to go again.`;
+  if(window.onHoldEnd) window.onHoldEnd(ms);
+}
+
+window.setMode=(t)=>{
+  mode = t==='hold' ? 'hold' : 'reps';
+  holdRunning=false; tplHold=[]; holdBase=0; holdBreak=0;
+  btnHoldSet.classList.remove('done'); btnHoldSet.textContent='Set position';
+  elCount.textContent = mode==='hold' ? '0.0' : '0';
+  if(running){
+    elState.textContent = mode==='hold' ? 'Needs position' : 'Needs calibration';
+    elHint.textContent = mode==='hold'
+      ? 'Tap “Set position” while holding the position you want to track.'
+      : 'Capture the up and down positions to start counting.';
+  }
+  applyPanel();
+};
+// ──────────────────────────────────────────────────────────
+
 document.getElementById('resetAll').onclick=()=>{
   count=0; elCount.textContent='0';
   window.clearCalibration();
 };
 
 // ── pause: camera stays on, counting stops ──
-const row2=document.getElementById('row2'), row3=document.getElementById('row3'),
-      rowPaused=document.getElementById('rowPaused');
 document.getElementById('pause').onclick=()=>{
   paused=true; phase='up'; hold=0;   // a half-finished rep dies here, not on resume
   row2.style.display='none'; row3.style.display='none'; elHint.style.display='none';
@@ -484,6 +626,32 @@ function loop(){
   const f=grab(); if(!f) return;
 
   let score=0;
+  if(mode==='hold'){
+    if(tplHold.length){
+      const d=bestOne(f,tplHold);
+      lastDrift=d;
+      if(holdRunning){
+        const elapsed=performance.now()-holdT0;
+        elCount.textContent=fmt(elapsed);
+        if(elapsed>GRACE_MS){
+          holdBreak = d>breakAt() ? holdBreak+1 : 0;
+          if(holdBreak>=BREAK_FRAMES){ endHold(); return; }
+        }
+      }
+      // meter shows how solid the hold is: full = dead on, empty = about to fail
+      score = 1 - Math.min(1, d/breakAt());
+    }
+    const p=Math.max(0,Math.min(1,score));
+    elFill.style.width=(p*100).toFixed(1)+'%';
+    elFill.style.background = holdRunning ? 'var(--down)' : 'var(--signal)';
+    const rw=4+p*34, rc = holdRunning ? '63,217,168' : '255,176,32';
+    elRing.style.boxShadow=`inset 0 0 0 ${rw.toFixed(1)}px rgba(${rc},${(.25+p*.45).toFixed(2)})`;
+    elReadout.textContent =
+      `drift ${lastDrift.toFixed(2)}  ·  breaks at ${breakAt().toFixed(2)}`;
+    elSensValue.textContent = `Sensitivity ${elSens.value}`;
+    return;
+  }
+
   if(tplUps.length&&tplDowns.length){
     const [du,dd]=bestPair(f,tplUps,tplDowns);
     score=du/(du+dd||1);
@@ -547,11 +715,23 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
   const db = getFirestore(app);
 
   const dayKey = () => new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local time
-  let uid = null, todayReps = 0;
+  let uid = null, todayReps = 0, todayBest = 0;
   let workouts = [], activeWorkoutId = null;
 
+  const activeType = () => {
+    const w = workouts.find(x => x.id === activeWorkoutId);
+    return w && w.type === 'hold' ? 'hold' : 'reps';
+  };
+  const fmtMs = ms => {
+    const t = Math.max(0,ms)/1000, m = Math.floor(t/60), s = t - m*60;
+    return m>0 ? `${m}:${s.toFixed(1).padStart(4,'0')}` : `${s.toFixed(1)}s`;
+  };
+
   const todayRef = () => doc(db, 'users', uid, 'workouts', activeWorkoutId, 'sessions', dayKey());
-  const paintToday = () => { elToday.textContent = `Today ${todayReps}`; elToday.classList.add('on'); };
+  const paintToday = () => {
+    elToday.textContent = activeType()==='hold' ? `Best ${fmtMs(todayBest)}` : `Today ${todayReps}`;
+    elToday.classList.add('on');
+  };
 
   async function loadToday(){
     if(!activeWorkoutId) return;
@@ -559,10 +739,22 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
     try{
       const snap = await getDoc(todayRef());
       if(forId !== activeWorkoutId) return; // switched again while this was in flight
-      todayReps = snap.exists() ? (snap.data().reps || 0) : 0;
+      const d = snap.exists() ? snap.data() : {};
+      todayReps = d.reps || 0;
+      todayBest = d.bestMs || 0;
       paintToday();
     }catch(e){ console.warn('Read failed', e); }
   }
+
+  // a finished hold saves itself, but only when it beats today's best
+  window.onHoldEnd = (ms) => {
+    if(!uid || ms <= todayBest) return;
+    const prev = todayBest;
+    todayBest = ms;
+    paintToday();
+    setDoc(todayRef(), { bestMs: Math.round(ms), updated: Date.now() }, { merge: true })
+      .catch(e => { console.warn('Save failed', e); todayBest = prev; paintToday(); });
+  };
 
   // ── workout drawer ──────────────────────────────────────────
   const menuBtn = document.getElementById('menuBtn');
@@ -588,7 +780,7 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
     workouts.forEach(w => {
       const btn = document.createElement('button');
       btn.className = 'workoutItem' + (w.id === activeWorkoutId ? ' active' : '');
-      btn.textContent = w.name;
+      btn.innerHTML = `${w.name}<span class="workoutTag">${w.type==='hold' ? 'HOLD' : 'REPS'}</span>`;
       btn.onclick = () => selectWorkout(w.id);
       workoutListEl.appendChild(btn);
     });
@@ -603,13 +795,23 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
     // unsaved reps belong to the workout you were in, not this one
     window.zeroCount();
     if(window.clearCalibration) window.clearCalibration('New workout — capture the up and down positions for this movement.');
-    todayReps = 0; paintToday();
+    if(window.setMode) window.setMode(w ? w.type : 'reps');
+    todayReps = 0; todayBest = 0; paintToday();
     closeDrawer();
     renderWorkouts();
     loadToday();
   }
 
-  addWorkoutBtn.onclick = () => { addForm.style.display='flex'; newNameInput.value=''; newNameInput.focus(); };
+  let newType = 'reps';
+  const typeReps = document.getElementById('typeReps'), typeHold = document.getElementById('typeHold');
+  typeReps.onclick = () => { newType='reps'; typeReps.classList.add('on'); typeHold.classList.remove('on'); };
+  typeHold.onclick = () => { newType='hold'; typeHold.classList.add('on'); typeReps.classList.remove('on'); };
+
+  addWorkoutBtn.onclick = () => {
+    addForm.style.display='flex'; newNameInput.value='';
+    newType='reps'; typeReps.classList.add('on'); typeHold.classList.remove('on');
+    newNameInput.focus();
+  };
   document.getElementById('cancelAddWorkout').onclick = () => { addForm.style.display='none'; };
   document.getElementById('confirmAddWorkout').onclick = addWorkout;
   newNameInput.addEventListener('keydown', e => { if(e.key === 'Enter') addWorkout(); });
@@ -618,11 +820,12 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
     const name = newNameInput.value.trim();
     if(!name) return;
     const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
-    workouts.push({ id, name });
+    const type = newType;
+    workouts.push({ id, name, type });
     addForm.style.display = 'none';
     selectWorkout(id);
     if(uid){
-      setDoc(doc(db,'users',uid,'workouts',id), { name, createdAt: Date.now() })
+      setDoc(doc(db,'users',uid,'workouts',id), { name, type, createdAt: Date.now() })
         .catch(e => console.warn('Workout save failed', e));
     }
   }
@@ -630,20 +833,26 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
   async function loadWorkouts(){
     try{
       const snap = await getDocs(collection(db,'users',uid,'workouts'));
-      workouts = snap.docs.map(d => ({ id: d.id, name: d.data().name }));
+      workouts = snap.docs.map(d => ({ id: d.id, name: d.data().name, type: d.data().type || 'reps' }));
     }catch(e){ console.warn('Workout list load failed', e); }
 
     if(workouts.length === 0){
-      // seed a default so the app is usable before you've made any workouts
-      const id = 'pushups';
-      workouts = [{ id, name: 'Push-ups' }];
-      setDoc(doc(db,'users',uid,'workouts',id), { name:'Push-ups', createdAt: Date.now() })
-        .catch(e => console.warn('Default workout save failed', e));
+      // seed the two defaults so the app is usable before you've made any workouts
+      workouts = [
+        { id:'pushups', name:'Push-ups', type:'reps' },
+        { id:'plank',   name:'Plank',    type:'hold' }
+      ];
+      for(const w of workouts){
+        setDoc(doc(db,'users',uid,'workouts',w.id), { name:w.name, type:w.type, createdAt: Date.now() })
+          .catch(e => console.warn('Default workout save failed', e));
+      }
     }
 
     const saved = (() => { try{ return localStorage.getItem('activeWorkoutId'); }catch(e){ return null; } })();
     activeWorkoutId = workouts.find(w => w.id === saved) ? saved : workouts[0].id;
-    workoutLabel.textContent = workouts.find(w => w.id === activeWorkoutId).name;
+    const active = workouts.find(w => w.id === activeWorkoutId);
+    workoutLabel.textContent = active.name;
+    if(window.setMode) window.setMode(active.type);
     renderWorkouts();
     loadToday();
   }
