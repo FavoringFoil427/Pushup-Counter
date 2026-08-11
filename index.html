@@ -568,26 +568,38 @@ async function samplePoseRef(){
   poseRef=ref;
 }
 
-// how far out of position you are: the average of your THREE most-moved joints,
-// as a fraction of body size. Averaging all joints let knees-on-the-floor hide
-// behind a still head and shoulders — the same dilution bug the pixels had.
+// Per-joint drift. Each joint gets its own noise baseline learned during the grace
+// window, because MoveNet jitters differently on every landmark. Drift is then the
+// WORST single joint's movement beyond its own jitter, as a fraction of body size.
+// (The old top-3 average learned its baseline from the jitteriest joints, which
+//  inflated the threshold until real movement couldn't clear it.)
 const KP_NAMES=['nose','l-eye','r-eye','l-ear','r-ear','l-shoulder','r-shoulder','l-elbow','r-elbow',
                 'l-wrist','r-wrist','l-hip','r-hip','l-knee','r-knee','l-ankle','r-ankle'];
+// face landmarks tell us nothing about form and jitter the most — ignore them
+const TRACKED=[5,6,7,8,9,10,11,12,13,14,15,16];
 let lastTopJoints='';
-function poseDisplacement(kps){
+let poseBaseSum=new Float64Array(17), poseBaseN=new Int32Array(17);
+
+function resetPoseBaseline(){ poseBaseSum.fill(0); poseBaseN.fill(0); }
+
+function poseDisplacement(kps, learning){
   if(!poseRef) return null;
-  const moved=[];
-  for(let i=0;i<kps.length;i++){
+  let seen=0, worst=0, worstName='';
+  for(const i of TRACKED){
     const a=kps[i], b=poseRef[i];
-    if(a.score>=.3 && b.score>=.3) moved.push({d:Math.hypot(a.x-b.x,a.y-b.y), i});
+    if(!a||!b||a.score<.3||b.score<.3) continue;
+    seen++;
+    const disp=Math.hypot(a.x-b.x,a.y-b.y);
+    if(learning){ poseBaseSum[i]+=disp; poseBaseN[i]++; continue; }
+    const base=poseBaseN[i] ? poseBaseSum[i]/poseBaseN[i] : 0;
+    const excess=Math.max(0,disp-base)/poseScale;
+    if(excess>worst){ worst=excess; worstName=KP_NAMES[i]; }
   }
-  if(moved.length<5) return null;   // lost sight of the body
-  moved.sort((x,y)=>y.d-x.d);
-  const k=Math.min(3,moved.length);
-  let s=0; for(let i=0;i<k;i++) s+=moved[i].d;
-  lastTopJoints = moved.slice(0,k).map(m=>`${KP_NAMES[m.i]} ${(m.d/poseScale).toFixed(2)}`).join(', ');
   drawPose(kps);
-  return (s/k)/poseScale;
+  if(seen<4) return null;          // can't see enough of the body
+  if(learning) return 0;
+  lastTopJoints = worstName ? `${worstName} ${worst.toFixed(2)}` : '—';
+  return worst;
 }
 
 // skeleton overlay: green = tracked confidently, red = the model is guessing
@@ -619,11 +631,12 @@ const fmt=ms=>{
   return m>0 ? `${m}:${Math.floor(s).toString().padStart(2,'0')}` : s.toFixed(1);
 };
 
-// how far you may drift from the captured position before it counts as failing
-// holdRef is your ACTUAL steady-state drift, averaged over the grace window
+// how far you may drift before it counts as failing.
+// Pose mode: an absolute fraction of body size (jitter is already subtracted per
+// joint), so a knee travelling ~10% of your body length breaks the hold outright.
 function breakAt(){
   const tol = 1.2 + ((armAt-.38)/.37)*1.8;   // sensitivity slider scales it (1.2x - 3.0x)
-  if(poseRef) return Math.min(.6, Math.max(.05, (holdRef||0)*tol + .04));  // joint units
+  if(poseRef) return .03 + ((armAt-.38)/.37)*.07;   // 0.03 - 0.10 of body size
   return Math.min(4.0, Math.max(.14, (holdRef||holdBase)*tol + .05));     // pixel units
 }
 
@@ -686,7 +699,7 @@ btnHoldStart.onclick=()=>{
       clearInterval(t); cd.classList.remove('on'); beep(880,160);
       busy=false;
       holdRunning=true; holdT0=performance.now(); holdBreak=0;
-      graceSum=0; graceN=0; holdRef=0;
+      graceSum=0; graceN=0; holdRef=0; resetPoseBaseline();
       elState.textContent='Holding';
       applyPanel();
     }
@@ -785,8 +798,9 @@ function loop(){
         // keep one estimate in flight; use the latest completed reading
         if(!estimating){
           estimating=true;
+          const learning = holdRunning && (performance.now()-holdT0)<=GRACE_MS;
           poseDetector.estimatePoses(v)
-            .then(p=>{ estimating=false; poseDrift = p[0] ? poseDisplacement(p[0].keypoints) : null; })
+            .then(p=>{ estimating=false; poseDrift = p[0] ? poseDisplacement(p[0].keypoints, learning) : null; })
             .catch(()=>{ estimating=false; });
         }
         // losing sight of the body entirely counts as way out of position
@@ -800,8 +814,9 @@ function loop(){
         elCount.textContent=fmt(elapsed);
         if(elapsed>=MAX_HOLD_MS){ endHold(); return; }
         if(elapsed<=GRACE_MS){
-          // learn what "holding steady" actually reads like, right now
-          if(!(poseRef&&poseDrift==null)){ graceSum+=d; graceN++; holdRef=graceN?graceSum/graceN:0; }
+          // pose mode learns a per-joint baseline inside poseDisplacement;
+          // the pixel fallback still needs its single global baseline here
+          if(!poseRef){ graceSum+=d; graceN++; holdRef=graceN?graceSum/graceN:0; }
         }else{
           const th=breakAt();
           holdBreak = d>th ? holdBreak+1 : 0;
@@ -819,7 +834,7 @@ function loop(){
     elRing.style.boxShadow=`inset 0 0 0 ${rw.toFixed(1)}px rgba(${rc},${(.25+p*.45).toFixed(2)})`;
     elReadout.textContent =
       `drift ${lastDrift.toFixed(2)}  ·  breaks at ${breakAt().toFixed(2)}` +
-      (poseRef ? `  ·  moving: ${lastTopJoints||'—'}` : '  ·  PIXEL FALLBACK');
+      (poseRef ? `  ·  worst: ${lastTopJoints||'—'}` : '  ·  PIXEL FALLBACK');
     elSensValue.textContent = `Sensitivity ${elSens.value}`;
     return;
   }
