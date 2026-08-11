@@ -255,9 +255,9 @@ const RELEASE=.10, DEBOUNCE=300, HOLD=3;
 
 // ── hold-position (plank) mode ──
 let mode='reps';
-let tplHold=[], holdBase=0, holdRunning=false, holdT0=0, holdBreak=0, lastDrift=0;
-const BREAK_FRAMES=8;   // ~0.25s of broken form before the clock stops
-const GRACE_MS=800;     // settle time right after the timer starts
+let tplHold=[], holdBase=0, holdRef=0, graceMax=0, holdRunning=false, holdT0=0, holdBreak=0, lastDrift=0;
+const BREAK_FRAMES=12;  // ~0.2-0.4s of broken form before the clock stops
+const GRACE_MS=1500;    // settle time — also where the real drift baseline is measured
 
 // slider right = more sensitive = lower trigger (0.75 down to 0.38)
 const sensToArm = val => .75 - (val/100)*.37;
@@ -487,16 +487,20 @@ const rowHold=document.getElementById('rowHold'),
       btnHoldSet=document.getElementById('holdSet'),
       btnHoldStart=document.getElementById('holdStart');
 
+const MAX_HOLD_MS=30*60*1000;   // hard stop so a forgotten timer can't run forever
 const fmt=ms=>{
   const t=Math.max(0,ms)/1000;
   const m=Math.floor(t/60), s=t-m*60;
-  return m>0 ? `${m}:${s.toFixed(1).padStart(4,'0')}` : s.toFixed(1);
+  // tenths only under a minute — past that they're noise and the text gets too wide
+  return m>0 ? `${m}:${Math.floor(s).toString().padStart(2,'0')}` : s.toFixed(1);
 };
 
 // how far you may drift from the captured position before it counts as failing
+// holdRef is your ACTUAL drift while holding, sampled during the grace window —
+// the burst frames alone are far too similar to each other to be a useful baseline
 function breakAt(){
   const tol = 1.5 + ((armAt-.38)/.37)*3;     // sensitivity slider scales it
-  return Math.min(1.2, Math.max(.12, holdBase*tol + .12));
+  return Math.min(1.5, Math.max(.25, (holdRef||holdBase)*tol + .10));
 }
 
 function applyPanel(){
@@ -553,6 +557,7 @@ btnHoldStart.onclick=()=>{
       clearInterval(t); cd.classList.remove('on'); beep(880,160);
       busy=false;
       holdRunning=true; holdT0=performance.now(); holdBreak=0;
+      graceMax=0; holdRef=0;
       elState.textContent='Holding';
       applyPanel();
     }
@@ -633,7 +638,12 @@ function loop(){
       if(holdRunning){
         const elapsed=performance.now()-holdT0;
         elCount.textContent=fmt(elapsed);
-        if(elapsed>GRACE_MS){
+        if(elapsed>=MAX_HOLD_MS){ endHold(); return; }
+        if(elapsed<=GRACE_MS){
+          // learn what "holding steady" actually reads like, right now
+          if(d>graceMax) graceMax=d;
+          holdRef=Math.max(holdBase,graceMax);
+        }else{
           holdBreak = d>breakAt() ? holdBreak+1 : 0;
           if(holdBreak>=BREAK_FRAMES){ endHold(); return; }
         }
@@ -724,7 +734,7 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
   };
   const fmtMs = ms => {
     const t = Math.max(0,ms)/1000, m = Math.floor(t/60), s = t - m*60;
-    return m>0 ? `${m}:${s.toFixed(1).padStart(4,'0')}` : `${s.toFixed(1)}s`;
+    return m>0 ? `${m}:${Math.floor(s).toString().padStart(2,'0')}` : `${s.toFixed(1)}s`;
   };
 
   const todayRef = () => doc(db, 'users', uid, 'workouts', activeWorkoutId, 'sessions', dayKey());
