@@ -564,16 +564,21 @@ async function samplePoseRef(){
   poseRef=ref;
 }
 
-// how far the joints have moved from the reference, as a fraction of body size
+// how far out of position you are: the average of your THREE most-moved joints,
+// as a fraction of body size. Averaging all joints let knees-on-the-floor hide
+// behind a still head and shoulders — the same dilution bug the pixels had.
 function poseDisplacement(kps){
   if(!poseRef) return null;
-  let s=0,n=0;
+  const moved=[];
   for(let i=0;i<kps.length;i++){
     const a=kps[i], b=poseRef[i];
-    if(a.score>=.3 && b.score>=.3){ s+=Math.hypot(a.x-b.x,a.y-b.y); n++; }
+    if(a.score>=.3 && b.score>=.3) moved.push(Math.hypot(a.x-b.x,a.y-b.y));
   }
-  if(n<5) return null;        // lost sight of the body
-  return (s/n)/poseScale;
+  if(moved.length<5) return null;   // lost sight of the body
+  moved.sort((x,y)=>y-x);
+  const k=Math.min(3,moved.length);
+  let s=0; for(let i=0;i<k;i++) s+=moved[i];
+  return (s/k)/poseScale;
 }
 
 const MAX_HOLD_MS=30*60*1000;   // hard stop so a forgotten timer can't run forever
