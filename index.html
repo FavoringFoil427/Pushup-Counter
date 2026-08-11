@@ -255,8 +255,9 @@ const RELEASE=.10, DEBOUNCE=300, HOLD=3;
 
 // ── hold-position (plank) mode ──
 let mode='reps';
-let tplHold=[], holdBase=0, holdRef=0, graceMax=0, holdRunning=false, holdT0=0, holdBreak=0, lastDrift=0;
+let tplHold=[], holdBase=0, holdRef=0, graceSum=0, graceN=0, holdRunning=false, holdT0=0, holdBreak=0, lastDrift=0;
 const BREAK_FRAMES=12;  // ~0.2-0.4s of broken form before the clock stops
+const HARD_FRAMES=4;    // obvious collapse stops almost immediately
 const GRACE_MS=1500;    // settle time — also where the real drift baseline is measured
 
 // slider right = more sensitive = lower trigger (0.75 down to 0.38)
@@ -323,7 +324,7 @@ function bestPair(g,tUps,tDowns){
   return [du,dd];
 }
 
-// closest match to any one stored frame, over every allowed shift
+// closest match to any one stored frame, over every allowed shift (rep mode)
 function bestOne(g,tpls){
   let best=Infinity;
   for(let dy=-SHIFT;dy<=SHIFT;dy++){
@@ -332,6 +333,15 @@ function bestOne(g,tpls){
       for(const t of tpls){ const d=dist(w,t); if(d<best) best=d; }
     }
   }
+  return best;
+}
+
+// HOLD mode: no shifting. In a plank you're meant to be still, so sliding the
+// window to find a match would forgive exactly the sagging we want to catch.
+function driftNow(g,tpls){
+  const w=windowAt(g,0,0);
+  let best=Infinity;
+  for(const t of tpls){ const d=dist(w,t); if(d<best) best=d; }
   return best;
 }
 
@@ -496,11 +506,10 @@ const fmt=ms=>{
 };
 
 // how far you may drift from the captured position before it counts as failing
-// holdRef is your ACTUAL drift while holding, sampled during the grace window —
-// the burst frames alone are far too similar to each other to be a useful baseline
+// holdRef is your ACTUAL steady-state drift, averaged over the grace window
 function breakAt(){
-  const tol = 1.5 + ((armAt-.38)/.37)*3;     // sensitivity slider scales it
-  return Math.min(1.5, Math.max(.25, (holdRef||holdBase)*tol + .10));
+  const tol = 1.2 + ((armAt-.38)/.37)*1.8;   // sensitivity slider scales it (1.2x - 3.0x)
+  return Math.min(1.2, Math.max(.14, (holdRef||holdBase)*tol + .05));
 }
 
 function applyPanel(){
@@ -557,7 +566,7 @@ btnHoldStart.onclick=()=>{
       clearInterval(t); cd.classList.remove('on'); beep(880,160);
       busy=false;
       holdRunning=true; holdT0=performance.now(); holdBreak=0;
-      graceMax=0; holdRef=0;
+      graceSum=0; graceN=0; holdRef=0;
       elState.textContent='Holding';
       applyPanel();
     }
@@ -633,7 +642,7 @@ function loop(){
   let score=0;
   if(mode==='hold'){
     if(tplHold.length){
-      const d=bestOne(f,tplHold);
+      const d=driftNow(f,tplHold);
       lastDrift=d;
       if(holdRunning){
         const elapsed=performance.now()-holdT0;
@@ -641,11 +650,13 @@ function loop(){
         if(elapsed>=MAX_HOLD_MS){ endHold(); return; }
         if(elapsed<=GRACE_MS){
           // learn what "holding steady" actually reads like, right now
-          if(d>graceMax) graceMax=d;
-          holdRef=Math.max(holdBase,graceMax);
+          graceSum+=d; graceN++;
+          holdRef=Math.max(holdBase, graceSum/graceN);
         }else{
-          holdBreak = d>breakAt() ? holdBreak+1 : 0;
-          if(holdBreak>=BREAK_FRAMES){ endHold(); return; }
+          const th=breakAt();
+          holdBreak = d>th ? holdBreak+1 : 0;
+          // way past the line = you've clearly dropped; don't wait the full window
+          if(holdBreak>=BREAK_FRAMES || (d>th*2 && holdBreak>=HARD_FRAMES)){ endHold(); return; }
         }
       }
       // meter shows how solid the hold is: full = dead on, empty = about to fail
