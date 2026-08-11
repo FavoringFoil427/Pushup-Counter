@@ -530,6 +530,9 @@ async function ensurePose(){
     poseDetector=await poseDetection.createDetector(
       poseDetection.SupportedModels.MoveNet,
       {modelType:poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING});
+    // first inference compiles shaders and can block for seconds — do it now,
+    // in the background, instead of mid-capture where it freezes the countdown
+    try{ if(v.readyState>=2) await poseDetector.estimatePoses(v); }catch(e){}
     console.log('Pose tracking ready');
   }catch(e){ console.warn('Pose model unavailable — falling back to pixel matching', e); }
   poseLoading=false;
@@ -613,8 +616,10 @@ btnHoldSet.onclick=()=>{
       clearInterval(t); beep(880,160);
       cdnum.textContent='•'; cdtxt.textContent='Hold — sampling';
       poseRef=null; poseDrift=null;
-      samplePoseRef();                 // body tracking, in parallel with the pixel burst
       captureBurst(frames=>{
+        // pose sampling happens AFTER the burst — running them together
+        // stalled the timers whenever the model had work to do
+        samplePoseRef();
         cd.classList.remove('on');
         if(frames.length){
           tplHold=frames;
@@ -664,11 +669,26 @@ function endHold(){
   if(window.onHoldEnd) window.onHoldEnd(ms);
 }
 
+// countdown shown while the body tracker loads — dismisses early once it's ready
+let prepActive=false;
+function prepOverlay(){
+  if(prepActive||poseDetector) return;
+  prepActive=true;
+  cd.classList.add('on'); cdtxt.textContent='Preparing workout';
+  let n=5; cdnum.textContent=n;
+  const t=setInterval(()=>{
+    if(poseDetector||mode!=='hold'){ clearInterval(t); cd.classList.remove('on'); prepActive=false; beep(880,120); return; }
+    n--;
+    if(n<=0){ clearInterval(t); cd.classList.remove('on'); prepActive=false; }
+    else cdnum.textContent=n;
+  },1000);
+}
+
 window.setMode=(t)=>{
   mode = t==='hold' ? 'hold' : 'reps';
   holdRunning=false; tplHold=[]; holdBase=0; holdBreak=0;
   poseRef=null; poseDrift=null;
-  if(mode==='hold') ensurePose();   // start fetching the tracker before it's needed
+  if(mode==='hold'){ ensurePose(); prepOverlay(); }   // fetch the tracker, show the countdown while it loads
   btnHoldSet.classList.remove('done'); btnHoldSet.textContent='Set position';
   elCount.textContent = mode==='hold' ? '0.0' : '0';
   if(running){
