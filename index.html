@@ -282,13 +282,16 @@ elSens.addEventListener('input', () => {
   try{ localStorage.setItem('sensitivity', elSens.value); }catch(e){}
 });
 
-// --- sample the CENTER of the frame, a bit larger than the window we compare ---
+// --- sample the frame, a bit larger than the window we compare ---
+// reps: crop to the center, where your face moves. holds: use nearly the whole
+// frame, because what fails in a plank (hips, knees) is out at the edges.
 const CROP=.6;
+function cropNow(){ return mode==='hold' ? .98 : CROP; }
 function grab(){
   if(v.readyState<2) return null;
   const vw=v.videoWidth, vh=v.videoHeight;
   if(!vw||!vh) return null;
-  const sw=vw*CROP, sh=vh*CROP;
+  const c=cropNow(), sw=vw*c, sh=vh*c;
   ctx.drawImage(v,(vw-sw)/2,(vh-sh)/2,sw,sh,0,0,GW,GH);
   const d=ctx.getImageData(0,0,GW,GH).data, g=new Float32Array(GW*GH);
   for(let i=0;i<GW*GH;i++){const p=i*4; g[i]=d[p]*.299+d[p+1]*.587+d[p+2]*.114;}
