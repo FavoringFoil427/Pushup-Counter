@@ -107,6 +107,9 @@
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace;display:block;margin-top:3px}
   #count.timer{font-size:clamp(56px,14vh,150px);letter-spacing:-.02em}
 
+  #poseDebug{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;
+    transform:scaleX(-1)}
+
   #countdown{position:absolute;inset:0;z-index:3;display:none;place-items:center;background:rgba(2,20,25,.82)}
   #countdown.on{display:grid}
   #cdnum{font-size:34vh;font-weight:900;color:var(--signal);line-height:1}
@@ -192,6 +195,7 @@
   </div>
 
   <div id="countdown"><div id="cdnum">3</div><div id="cdtxt">Hold still</div></div>
+  <canvas id="poseDebug"></canvas>
 </div>
 
 <div id="drawerBackdrop"></div>
@@ -567,19 +571,45 @@ async function samplePoseRef(){
 // how far out of position you are: the average of your THREE most-moved joints,
 // as a fraction of body size. Averaging all joints let knees-on-the-floor hide
 // behind a still head and shoulders — the same dilution bug the pixels had.
+const KP_NAMES=['nose','l-eye','r-eye','l-ear','r-ear','l-shoulder','r-shoulder','l-elbow','r-elbow',
+                'l-wrist','r-wrist','l-hip','r-hip','l-knee','r-knee','l-ankle','r-ankle'];
+let lastTopJoints='';
 function poseDisplacement(kps){
   if(!poseRef) return null;
   const moved=[];
   for(let i=0;i<kps.length;i++){
     const a=kps[i], b=poseRef[i];
-    if(a.score>=.3 && b.score>=.3) moved.push(Math.hypot(a.x-b.x,a.y-b.y));
+    if(a.score>=.3 && b.score>=.3) moved.push({d:Math.hypot(a.x-b.x,a.y-b.y), i});
   }
   if(moved.length<5) return null;   // lost sight of the body
-  moved.sort((x,y)=>y-x);
+  moved.sort((x,y)=>y.d-x.d);
   const k=Math.min(3,moved.length);
-  let s=0; for(let i=0;i<k;i++) s+=moved[i];
+  let s=0; for(let i=0;i<k;i++) s+=moved[i].d;
+  lastTopJoints = moved.slice(0,k).map(m=>`${KP_NAMES[m.i]} ${(m.d/poseScale).toFixed(2)}`).join(', ');
+  drawPose(kps);
   return (s/k)/poseScale;
 }
+
+// skeleton overlay: green = tracked confidently, red = the model is guessing
+const dbg=document.getElementById('poseDebug'), dbgCtx=dbg.getContext('2d');
+function drawPose(kps){
+  const vw=v.videoWidth, vh=v.videoHeight;
+  if(!vw||!vh) return;
+  if(dbg.width!==dbg.clientWidth){ dbg.width=dbg.clientWidth; dbg.height=dbg.clientHeight; }
+  // object-fit:cover mapping from video coords to screen
+  const scale=Math.max(dbg.width/vw, dbg.height/vh);
+  const ox=(dbg.width-vw*scale)/2, oy=(dbg.height-vh*scale)/2;
+  dbgCtx.clearRect(0,0,dbg.width,dbg.height);
+  for(let i=0;i<kps.length;i++){
+    const k=kps[i];
+    const x=k.x*scale+ox, y=k.y*scale+oy;
+    dbgCtx.beginPath();
+    dbgCtx.arc(x,y,6,0,Math.PI*2);
+    dbgCtx.fillStyle = k.score>=.3 ? 'rgba(63,217,168,.9)' : 'rgba(255,80,80,.9)';
+    dbgCtx.fill();
+  }
+}
+function clearPoseDebug(){ dbgCtx&&dbgCtx.clearRect(0,0,dbg.width,dbg.height); }
 
 const MAX_HOLD_MS=30*60*1000;   // hard stop so a forgotten timer can't run forever
 const fmt=ms=>{
@@ -693,6 +723,7 @@ window.setMode=(t)=>{
   mode = t==='hold' ? 'hold' : 'reps';
   holdRunning=false; tplHold=[]; holdBase=0; holdBreak=0;
   poseRef=null; poseDrift=null;
+  clearPoseDebug();
   if(mode==='hold'){ ensurePose(); prepOverlay(); }   // fetch the tracker, show the countdown while it loads
   btnHoldSet.classList.remove('done'); btnHoldSet.textContent='Set position';
   elCount.textContent = mode==='hold' ? '0.0' : '0';
@@ -788,7 +819,7 @@ function loop(){
     elRing.style.boxShadow=`inset 0 0 0 ${rw.toFixed(1)}px rgba(${rc},${(.25+p*.45).toFixed(2)})`;
     elReadout.textContent =
       `drift ${lastDrift.toFixed(2)}  ·  breaks at ${breakAt().toFixed(2)}` +
-      (poseRef ? '  ·  body tracking' : '');
+      (poseRef ? `  ·  moving: ${lastTopJoints||'—'}` : '  ·  PIXEL FALLBACK');
     elSensValue.textContent = `Sensitivity ${elSens.value}`;
     return;
   }
