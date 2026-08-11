@@ -191,7 +191,7 @@
       <button id="holdSet">Set position</button>
       <button id="holdStart" class="primary">Start</button>
     </div>
-    <p class="hint" id="hint">Put the phone on the floor under your chest, screen up.</p>
+    <p class="hint" id="hint">Prop the phone so the camera can see the part of you that moves.</p>
   </div>
 
   <div id="countdown"><div id="cdnum">3</div><div id="cdtxt">Hold still</div></div>
@@ -416,10 +416,10 @@ btnStart.onclick=async()=>{
     applyPanel();
     if(mode==='hold'){
       elState.textContent = tplHold.length ? 'Ready' : 'Needs position';
-      elHint.textContent='Tap “Set position” while holding the position you want to track.';
+      elHint.textContent='Turn the phone landscape and set it to your side so it sees your whole body, then tap “Set position” while holding.';
     }else{
       elState.textContent='Needs calibration';
-      elHint.textContent='Step 1: hold the top of a push-up and tap “Capture up position”.';
+      elHint.textContent='Step 1: get into the top of the movement and tap “Capture up position”.';
     }
     beep(660,90);
     loop();
@@ -457,11 +457,11 @@ function countdownCapture(which){
         if(tplUps.length&&tplDowns.length){
           elState.textContent='Counting'; phase='up';
           elHint.textContent = downCaptures===1
-            ? 'Go. For one-leg moves, capture the down position again on the other side.'
-            : 'Go. A rep lands when you come back up.';
+            ? 'Counting. If the movement switches sides, capture the bottom again on the other side.'
+            : 'Counting. A rep lands when you return to the top.';
         }else{
-          elHint.textContent = tplUps.length ? 'Step 2: tap “Capture down position”, then get your face right up to the camera.'
-                                             : 'Step 1: hold the top of a push-up and tap “Capture up position”.';
+          elHint.textContent = tplUps.length ? 'Step 2: hold the bottom of the movement and tap “Capture down position”.'
+                                             : 'Step 1: get into the top of the movement and tap “Capture up position”.';
         }
         busy=false;
       });
@@ -480,9 +480,9 @@ function calibrationState(){
   if(tplUps.length&&tplDowns.length){ elState.textContent='Counting'; }
   else{
     elState.textContent='Needs calibration';
-    elHint.textContent = tplUps.length ? 'Down position cleared — capture it again.'
-             : tplDowns.length ? 'Up position cleared — capture it again.'
-                               : 'Capture the up and down positions to start counting.';
+    elHint.textContent = tplUps.length ? 'Bottom position cleared — capture it again.'
+             : tplDowns.length ? 'Top position cleared — capture it again.'
+                               : 'Capture the top and bottom of the movement to start counting.';
   }
   phase='up'; hold=0;
 }
@@ -642,7 +642,7 @@ function applyPanel(){
 btnHoldSet.onclick=()=>{
   if(busy) return; busy=true;
   ensurePose();
-  cd.classList.add('on'); cdtxt.textContent='Get into the position and hold';
+  cd.classList.add('on'); cdtxt.textContent='Phone landscape, to your side — get into position';
   let n=3; cdnum.textContent=n; beep(520,80);
   const t=setInterval(()=>{
     n--;
@@ -663,7 +663,7 @@ btnHoldSet.onclick=()=>{
           holdBase=b;
           btnHoldSet.classList.add('done'); btnHoldSet.textContent='Position set';
           elState.textContent='Ready';
-          elHint.textContent='Tap Start, then get back into position — the clock begins after the countdown.';
+          elHint.textContent='Tap Start and get back into position — the clock begins after the countdown.';
         }
         busy=false;
       });
@@ -673,7 +673,7 @@ btnHoldSet.onclick=()=>{
 
 btnHoldStart.onclick=()=>{
   if(busy||!tplHold.length){
-    if(!tplHold.length) elHint.textContent='Set the position first.';
+    if(!tplHold.length) elHint.textContent='Capture the position first with “Set position”.';
     return;
   }
   busy=true;
@@ -700,7 +700,7 @@ function endHold(){
   elState.textContent='Done';
   beep(300,400);
   applyPanel();
-  elHint.textContent=`Held ${fmt(ms)}. Tap Start to go again.`;
+  elHint.textContent=`Held ${fmt(ms)} — form broke. Tap Start to go again.`;
   if(window.onHoldEnd) window.onHoldEnd(ms);
 }
 
@@ -709,7 +709,7 @@ let prepActive=false;
 function prepOverlay(){
   if(prepActive||poseDetector) return;
   prepActive=true;
-  cd.classList.add('on'); cdtxt.textContent='Preparing workout';
+  cd.classList.add('on'); cdtxt.textContent='Preparing workout — turn the phone landscape';
   let n=5; cdnum.textContent=n;
   const t=setInterval(()=>{
     if(poseDetector||mode!=='hold'){ clearInterval(t); cd.classList.remove('on'); prepActive=false; beep(880,120); return; }
@@ -730,8 +730,8 @@ window.setMode=(t)=>{
   if(running){
     elState.textContent = mode==='hold' ? 'Needs position' : 'Needs calibration';
     elHint.textContent = mode==='hold'
-      ? 'Tap “Set position” while holding the position you want to track.'
-      : 'Capture the up and down positions to start counting.';
+      ? 'Turn the phone landscape and set it to your side so it sees your whole body, then tap “Set position” while holding.'
+      : 'Capture the top and bottom of this movement to start counting.';
   }
   applyPanel();
 };
@@ -767,7 +767,7 @@ window.clearCalibration=(msg)=>{
   btnDown.classList.remove('done'); btnDown.textContent='Capture down position';
   if(running){
     elState.textContent='Needs calibration';
-    elHint.textContent = msg || 'Fresh start — capture the up and down positions again.';
+    elHint.textContent = msg || 'Cleared — capture the top and bottom of the movement again.';
   }
 };
 
@@ -966,7 +966,7 @@ if (firebaseConfig.apiKey === "PASTE_ME") {
     try{ localStorage.setItem('activeWorkoutId', id); }catch(e){}
     // unsaved reps belong to the workout you were in, not this one
     window.zeroCount();
-    if(window.clearCalibration) window.clearCalibration('New workout — capture the up and down positions for this movement.');
+    if(window.clearCalibration) window.clearCalibration('New workout — capture the top and bottom of this movement.');
     if(window.setMode) window.setMode(w ? w.type : 'reps');
     todayReps = 0; todayBest = 0; paintToday();
     closeDrawer();
