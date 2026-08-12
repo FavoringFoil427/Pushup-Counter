@@ -117,6 +117,18 @@
   #autoToggle{width:44px;height:26px;accent-color:var(--signal);flex:0 0 auto}
   #autoNote{font-size:11px;line-height:1.4;color:var(--dim);opacity:.75}
 
+  #rowFraming{display:flex;flex-direction:column;gap:8px;
+    border:1px solid rgba(255,176,32,.4);border-radius:14px;padding:12px;
+    background:rgba(255,176,32,.07)}
+  #framingTitle{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--signal);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  #framingList{display:flex;flex-wrap:wrap;gap:6px}
+  .fchip{font-size:11px;padding:5px 9px;border-radius:99px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    border:1px solid rgba(234,242,240,.2);color:var(--dim)}
+  .fchip.ok{border-color:var(--down);color:var(--down)}
+  .fchip.bad{border-color:rgba(255,120,120,.6);color:rgb(255,140,140)}
+
   #countdown{position:absolute;inset:0;z-index:3;display:none;place-items:center;background:rgba(2,20,25,.82)}
   #countdown.on{display:grid}
   #cdnum{font-size:34vh;font-weight:900;color:var(--signal);line-height:1}
@@ -173,6 +185,10 @@
   <div id="panel">
     <div class="row" id="row1">
       <button id="start" class="primary">Start camera</button>
+    </div>
+    <div id="rowFraming" style="display:none">
+      <div id="framingTitle">Framing check</div>
+      <div id="framingList"></div>
     </div>
     <div class="row" id="row2" style="display:none">
       <button id="calUp">Capture up position</button>
@@ -268,6 +284,70 @@ let armAt=.55;          // sensitivity 54 on the 0-100 scale
 let peak=0, lastPeak=0; // deepest point of the current/most recent rep
 let lastScore=0, hold=0, paused=false, repRunning=false;
 const RELEASE=.10, DEBOUNCE=300, HOLD=3;
+
+// ── framing gate: the camera must see your whole body before any workout ──
+// Nothing starts until every body region below is tracked confidently and held
+// steady for a moment. Bad framing was the root cause of every detection problem
+// we hit, so this catches it up front instead of mid-set.
+let framed=false, framingHold=0, framingChecking=false;
+const FRAME_GROUPS=[
+  {label:'shoulders', idx:[5,6]},
+  {label:'hips',      idx:[11,12]},
+  {label:'knees',     idx:[13,14]},
+  {label:'ankles',    idx:[15,16]}
+];
+const FRAME_HOLD=20;   // ~0.7s of good framing before it unlocks
+const elFramingRow=document.getElementById('rowFraming'),
+      elFramingList=document.getElementById('framingList'),
+      elFramingTitle=document.getElementById('framingTitle');
+
+function checkFraming(kps){
+  const status=[];
+  let allOk=true;
+  for(const g of FRAME_GROUPS){
+    // one of a pair is enough — a side-on view legitimately hides the far limb
+    const ok=g.idx.some(i=>kps[i]&&kps[i].score>=.35);
+    if(!ok) allOk=false;
+    status.push({label:g.label, ok});
+  }
+  // body must also sit inside the frame, not run off the edges
+  let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9,seen=0;
+  for(const i of TRACKED){
+    const k=kps[i]; if(!k||k.score<.35) continue;
+    seen++;
+    if(k.x<minx)minx=k.x; if(k.x>maxx)maxx=k.x;
+    if(k.y<miny)miny=k.y; if(k.y>maxy)maxy=k.y;
+  }
+  const vw=v.videoWidth||1, vh=v.videoHeight||1;
+  const inFrame = seen>=4 && minx>vw*.02 && maxx<vw*.98 && miny>vh*.02 && maxy<vh*.98;
+  if(!inFrame) allOk=false;
+  status.push({label:'inside frame', ok:inFrame});
+  return {allOk, status};
+}
+
+function paintFraming(status, msg){
+  elFramingList.innerHTML='';
+  for(const s of status){
+    const el=document.createElement('span');
+    el.className='fchip '+(s.ok?'ok':'bad');
+    el.textContent=(s.ok?'✓ ':'✗ ')+s.label;
+    elFramingList.appendChild(el);
+  }
+  if(msg) elFramingTitle.textContent=msg;
+}
+
+function startFramingCheck(){
+  framed=false; framingHold=0; framingChecking=true;
+  elFramingTitle.textContent='Framing check';
+  elFramingList.innerHTML='<span class="fchip">looking for you…</span>';
+  ensurePose();
+  if(running){
+    elState.textContent='Framing';
+    elHint.textContent='Move the phone back until it sees your whole body — head to ankles.';
+  }
+  applyPanel();
+}
+window.startFramingCheck=startFramingCheck;
 
 // ── auto-detect reps: count any repeated motion, no calibration ──
 // Watches every tracked joint on both axes, picks whichever channel is actually
@@ -488,21 +568,8 @@ btnStart.onclick=async()=>{
     v.srcObject=stream; await v.play();
     running=true;
     document.getElementById('row1').style.display='none';
-    document.getElementById('row2').style.display='flex';
-    document.getElementById('row3').style.display='flex';
-    applyPanel();
-    if(mode==='hold'){
-      elState.textContent = tplHold.length ? 'Ready' : 'Needs position';
-      elHint.textContent='Turn the phone landscape and set it to your side so it sees your whole body, then tap “Set position” while holding.';
-    }else if(autoMode){
-      ensurePose();
-      elState.textContent='Ready';
-      elHint.textContent='Auto-detect on — set the phone so it sees your whole body, then tap Start.';
-    }else{
-      elState.textContent='Needs calibration';
-      elHint.textContent='Step 1: get into the top of the movement and tap “Capture up position”.';
-    }
     beep(660,90);
+    startFramingCheck();
     loop();
   }catch(e){
     btnStart.disabled=false; elState.textContent='No camera';
@@ -746,6 +813,16 @@ function applyPanel(){
   if(!running) return;
   const holdMode = mode==='hold';
   const autoReps = !holdMode && autoMode;
+  // nothing is usable until the framing gate passes
+  elFramingRow.style.display = framed ? 'none' : 'flex';
+  if(!framed){
+    row2.style.display='none'; row3.style.display='none';
+    rowHold.style.display='none'; rowPaused.style.display='none';
+    elHint.style.display='';
+    elCount.classList.toggle('timer', holdMode);
+    elCountLabel.textContent = holdMode ? 'hold time' : 'reps';
+    return;
+  }
   row2.style.display  = (holdMode||paused||autoReps) ? 'none' : 'flex';  // no capture buttons in auto
   row3.style.display  = (holdMode||paused) ? 'none' : 'flex';
   rowHold.style.display = (holdMode && !holdRunning) ? 'flex' : 'none';
@@ -849,11 +926,8 @@ window.setMode=(t)=>{
   btnHoldSet.classList.remove('done'); btnHoldSet.textContent='Set position';
   elCount.textContent = mode==='hold' ? '0.0' : '0';
   if(running){
-    elState.textContent = mode==='hold' ? 'Needs position' : (autoMode ? 'Ready' : 'Needs calibration');
-    elHint.textContent = mode==='hold'
-      ? 'Turn the phone landscape and set it to your side so it sees your whole body, then tap “Set position” while holding.'
-      : (autoMode ? 'Auto-detect on — tap Start and do your reps.'
-                  : 'Capture the top and bottom of this movement to start counting.');
+    startFramingCheck();
+    return;
   }
   applyPanel();
 };
@@ -962,6 +1036,44 @@ function loop(){
       `drift ${lastDrift.toFixed(2)}  ·  breaks at ${breakAt().toFixed(2)}` +
       (poseRef ? `  ·  worst: ${lastTopJoints||'—'}` : '  ·  PIXEL FALLBACK');
     elSensValue.textContent = `Sensitivity ${elSens.value}`;
+    return;
+  }
+
+  // framing gate runs before anything else — no workout starts until it passes
+  if(!framed){
+    if(poseDetector && !estimating){
+      estimating=true;
+      poseDetector.estimatePoses(v)
+        .then(p=>{
+          estimating=false;
+          if(!p[0]){ framingHold=0; paintFraming([{label:'no body detected',ok:false}]); return; }
+          drawPose(p[0].keypoints);
+          const {allOk,status}=checkFraming(p[0].keypoints);
+          paintFraming(status, allOk ? 'Hold still…' : 'Framing check');
+          framingHold = allOk ? framingHold+1 : 0;
+          if(framingHold>=FRAME_HOLD){
+            framed=true; framingChecking=false;
+            beep(880,180);
+            elFramingTitle.textContent='Framing OK';
+            if(mode==='hold'){
+              elState.textContent = tplHold.length ? 'Ready' : 'Needs position';
+              elHint.textContent='Framing good. Tap “Set position” while holding.';
+            }else if(autoMode){
+              elState.textContent='Ready';
+              elHint.textContent='Framing good. Tap Start and do your reps.';
+            }else{
+              elState.textContent='Needs calibration';
+              elHint.textContent='Framing good. Capture the top and bottom of the movement.';
+            }
+            applyPanel();
+          }
+        })
+        .catch(()=>{ estimating=false; });
+    }else if(!poseDetector){
+      elFramingList.innerHTML='<span class="fchip">loading body tracker…</span>';
+    }
+    elFill.style.width=(Math.min(1,framingHold/FRAME_HOLD)*100).toFixed(1)+'%';
+    elFill.style.background='var(--signal)';
     return;
   }
 
