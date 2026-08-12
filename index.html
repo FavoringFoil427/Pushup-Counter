@@ -677,6 +677,7 @@ function countdownCapture(which){
                                              : 'Step 1: get into the top of the movement and tap “Capture up position”.';
         }
         busy=false;
+        applyPanel();   // re-enables Start once both positions exist
       });
     }
   },1000);
