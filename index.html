@@ -110,6 +110,13 @@
   #poseDebug{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;
     transform:scaleX(-1)}
 
+  #autoRow{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding-top:10px;margin-top:4px;border-top:1px solid rgba(234,242,240,.12);
+    font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  #autoToggle{width:44px;height:26px;accent-color:var(--signal);flex:0 0 auto}
+  #autoNote{font-size:11px;line-height:1.4;color:var(--dim);opacity:.75}
+
   #countdown{position:absolute;inset:0;z-index:3;display:none;place-items:center;background:rgba(2,20,25,.82)}
   #countdown.on{display:grid}
   #cdnum{font-size:34vh;font-weight:900;color:var(--signal);line-height:1}
@@ -208,6 +215,11 @@
         <input id="sens" type="range" min="0" max="100" value="54">
       </label>
       <div id="readout">depth 0 · trigger 55</div>
+      <label id="autoRow">
+        <span>Auto-detect reps</span>
+        <input id="autoToggle" type="checkbox">
+      </label>
+      <div id="autoNote">Counts any repeated motion — no calibration needed.</div>
     </div>
   </div>
 
@@ -254,8 +266,73 @@ const MAX_DOWNS=4;              // separate down positions (each stores several 
 const BURST_N=8, BURST_MS=90, KEEP=3;   // frames sampled per capture, and how many survive
 let armAt=.55;          // sensitivity 54 on the 0-100 scale
 let peak=0, lastPeak=0; // deepest point of the current/most recent rep
-let lastScore=0, hold=0, paused=false;
+let lastScore=0, hold=0, paused=false, repRunning=false;
 const RELEASE=.10, DEBOUNCE=300, HOLD=3;
+
+// ── auto-detect reps: count any repeated motion, no calibration ──
+// Watches every tracked joint on both axes, picks whichever channel is actually
+// swinging, and counts full cycles with hysteresis. It doesn't know WHAT you're
+// doing — only that you're doing it rhythmically.
+let autoMode=false, autoRunning=false, autoPhase=0, autoLastRep=0, autoName='—', autoAmp=0;
+const AUTO_WIN=90;            // ~3s of history at 30fps
+const AUTO_MIN_AMP=.035;      // swing must be this fraction of body size to count
+const AUTO_MIN_MS=450;        // fastest believable rep
+const autoHist=[];            // [{t, vals:Float32Array}]
+
+function autoReset(){ autoHist.length=0; autoPhase=0; autoLastRep=0; autoAmp=0; autoName='—'; }
+
+function autoTick(kps){
+  drawPose(kps);
+  // body size, so thresholds mean the same thing at any camera distance
+  let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9,seen=0;
+  for(const i of TRACKED){
+    const k=kps[i]; if(!k||k.score<.3) continue;
+    seen++;
+    if(k.x<minx)minx=k.x; if(k.x>maxx)maxx=k.x;
+    if(k.y<miny)miny=k.y; if(k.y>maxy)maxy=k.y;
+  }
+  if(seen<4){ autoName='body not visible'; return false; }
+  const scale=Math.max(50,Math.hypot(maxx-minx,maxy-miny));
+
+  // one channel per joint per axis
+  const vals=new Float32Array(TRACKED.length*2);
+  for(let j=0;j<TRACKED.length;j++){
+    const k=kps[TRACKED[j]];
+    vals[j*2]   = k&&k.score>=.3 ? k.x/scale : NaN;
+    vals[j*2+1] = k&&k.score>=.3 ? k.y/scale : NaN;
+  }
+  autoHist.push({t:performance.now(), vals});
+  while(autoHist.length>AUTO_WIN) autoHist.shift();
+  if(autoHist.length<12) { autoName='reading motion…'; return false; }
+
+  // which channel is swinging the most right now?
+  let bestCh=-1, bestRange=0, bestLo=0, bestHi=0;
+  for(let c=0;c<vals.length;c++){
+    let lo=Infinity, hi=-Infinity, n=0;
+    for(const h of autoHist){ const v=h.vals[c]; if(!isNaN(v)){ if(v<lo)lo=v; if(v>hi)hi=v; n++; } }
+    if(n<autoHist.length*.6) continue;
+    const range=hi-lo;
+    if(range>bestRange){ bestRange=range; bestCh=c; bestLo=lo; bestHi=hi; }
+  }
+  autoAmp=bestRange;
+  if(bestCh<0 || bestRange<AUTO_MIN_AMP){ autoName='waiting for motion'; autoPhase=0; return false; }
+
+  autoName = KP_NAMES[TRACKED[bestCh>>1]] + (bestCh%2 ? ' ↕' : ' ↔');
+
+  // hysteresis: must reach the top third AND come back to the bottom third.
+  // Counting both crossings would double every rep, so only the return counts.
+  const cur=vals[bestCh];
+  if(isNaN(cur)) return false;
+  const hiGate=bestLo+bestRange*.70, loGate=bestLo+bestRange*.30;
+  const now=performance.now();
+  let counted=false;
+  if(autoPhase!==1 && cur>hiGate){ autoPhase=1; }
+  else if(autoPhase===1 && cur<loGate){
+    autoPhase=0;
+    if(now-autoLastRep>AUTO_MIN_MS){ autoLastRep=now; counted=true; }
+  }
+  return counted;
+}
 
 // ── hold-position (plank) mode ──
 let mode='reps';
@@ -417,6 +494,10 @@ btnStart.onclick=async()=>{
     if(mode==='hold'){
       elState.textContent = tplHold.length ? 'Ready' : 'Needs position';
       elHint.textContent='Turn the phone landscape and set it to your side so it sees your whole body, then tap “Set position” while holding.';
+    }else if(autoMode){
+      ensurePose();
+      elState.textContent='Ready';
+      elHint.textContent='Auto-detect on — set the phone so it sees your whole body, then tap Start.';
     }else{
       elState.textContent='Needs calibration';
       elHint.textContent='Step 1: get into the top of the movement and tap “Capture up position”.';
@@ -455,10 +536,10 @@ function countdownCapture(which){
           }
         }
         if(tplUps.length&&tplDowns.length){
-          elState.textContent='Counting'; phase='up';
+          elState.textContent = repRunning ? 'Counting' : 'Ready'; phase='up';
           elHint.textContent = downCaptures===1
-            ? 'Counting. If the movement switches sides, capture the bottom again on the other side.'
-            : 'Counting. A rep lands when you return to the top.';
+            ? 'Tap Start to begin. If the movement switches sides, capture the bottom again on the other side.'
+            : 'Tap Start to begin counting.';
         }else{
           elHint.textContent = tplUps.length ? 'Step 2: hold the bottom of the movement and tap “Capture down position”.'
                                              : 'Step 1: get into the top of the movement and tap “Capture up position”.';
@@ -468,6 +549,24 @@ function countdownCapture(which){
     }
   },1000);
 }
+// auto-detect toggle
+const elAuto=document.getElementById('autoToggle');
+try{ autoMode = localStorage.getItem('autoMode')==='1'; elAuto.checked=autoMode; }catch(e){}
+elAuto.addEventListener('change', ()=>{
+  autoMode=elAuto.checked;
+  try{ localStorage.setItem('autoMode', autoMode?'1':'0'); }catch(e){}
+  autoReset(); clearPoseDebug();
+  repRunning=false; count=0; elCount.textContent='0';
+  if(autoMode) ensurePose();
+  if(running){
+    elState.textContent = autoMode ? 'Ready' : ((tplUps.length&&tplDowns.length) ? 'Ready' : 'Needs calibration');
+    elHint.textContent = autoMode
+      ? 'Auto-detect on — tap Start, then just do your reps. No calibration needed.'
+      : 'Capture the top and bottom of the movement to start counting.';
+  }
+  applyPanel();
+});
+
 btnUp.onclick=()=>countdownCapture('up');
 btnDown.onclick=()=>countdownCapture('down');
 
@@ -477,14 +576,17 @@ const optUp=document.getElementById('resetUpOpt'), optDown=document.getElementBy
       optCount=document.getElementById('resetCountOpt');
 
 function calibrationState(){
-  if(tplUps.length&&tplDowns.length){ elState.textContent='Counting'; }
+  if(autoMode){ elState.textContent = repRunning ? 'Counting' : 'Ready'; applyPanel(); return; }
+  if(tplUps.length&&tplDowns.length){ elState.textContent = repRunning ? 'Counting' : 'Ready'; }
   else{
+    repRunning=false;               // can't count without both positions
     elState.textContent='Needs calibration';
     elHint.textContent = tplUps.length ? 'Bottom position cleared — capture it again.'
              : tplDowns.length ? 'Top position cleared — capture it again.'
                                : 'Capture the top and bottom of the movement to start counting.';
   }
   phase='up'; hold=0;
+  applyPanel();
 }
 
 resetMenuBtn.onclick=(e)=>{
@@ -643,13 +745,18 @@ function breakAt(){
 function applyPanel(){
   if(!running) return;
   const holdMode = mode==='hold';
-  row2.style.display  = (holdMode||paused) ? 'none' : 'flex';
+  const autoReps = !holdMode && autoMode;
+  row2.style.display  = (holdMode||paused||autoReps) ? 'none' : 'flex';  // no capture buttons in auto
   row3.style.display  = (holdMode||paused) ? 'none' : 'flex';
   rowHold.style.display = (holdMode && !holdRunning) ? 'flex' : 'none';
   rowPaused.style.display = (!holdMode && paused) ? 'flex' : 'none';
   elHint.style.display = holdRunning ? 'none' : '';
   elCount.classList.toggle('timer', holdMode);
   elCountLabel.textContent = holdMode ? 'hold time' : 'reps';
+  // reps: the same slot is Start before you begin, Pause once you're counting
+  btnPause.textContent = repRunning ? 'Pause' : 'Start';
+  btnPause.classList.toggle('primary', !repRunning);
+  btnPause.disabled = autoReps ? false : !(tplUps.length && tplDowns.length);
 }
 
 btnHoldSet.onclick=()=>{
@@ -734,17 +841,19 @@ function prepOverlay(){
 
 window.setMode=(t)=>{
   mode = t==='hold' ? 'hold' : 'reps';
-  holdRunning=false; tplHold=[]; holdBase=0; holdBreak=0;
+  holdRunning=false; tplHold=[]; holdBase=0; holdBreak=0; repRunning=false;
+  autoReset();
   poseRef=null; poseDrift=null;
   clearPoseDebug();
   if(mode==='hold'){ ensurePose(); prepOverlay(); }   // fetch the tracker, show the countdown while it loads
   btnHoldSet.classList.remove('done'); btnHoldSet.textContent='Set position';
   elCount.textContent = mode==='hold' ? '0.0' : '0';
   if(running){
-    elState.textContent = mode==='hold' ? 'Needs position' : 'Needs calibration';
+    elState.textContent = mode==='hold' ? 'Needs position' : (autoMode ? 'Ready' : 'Needs calibration');
     elHint.textContent = mode==='hold'
       ? 'Turn the phone landscape and set it to your side so it sees your whole body, then tap “Set position” while holding.'
-      : 'Capture the top and bottom of this movement to start counting.';
+      : (autoMode ? 'Auto-detect on — tap Start and do your reps.'
+                  : 'Capture the top and bottom of this movement to start counting.');
   }
   applyPanel();
 };
@@ -756,7 +865,21 @@ document.getElementById('resetAll').onclick=()=>{
 };
 
 // ── pause: camera stays on, counting stops ──
-document.getElementById('pause').onclick=()=>{
+const btnPause=document.getElementById('pause');
+btnPause.onclick=()=>{
+  if(!repRunning){
+    // Start: nothing counts until you tap this
+    if(!autoMode && !(tplUps.length&&tplDowns.length)){ elHint.textContent='Capture the top and bottom first.'; return; }
+    repRunning=true; phase='up'; hold=0;
+    if(autoMode) autoReset();
+    elState.textContent='Counting';
+    elHint.textContent = autoMode
+      ? 'Counting. Do a few reps at a steady pace so it can lock onto the rhythm.'
+      : 'Counting. A rep lands when you return to the top.';
+    beep(660,90);
+    applyPanel();
+    return;
+  }
   paused=true; phase='up'; hold=0;   // a half-finished rep dies here, not on resume
   row2.style.display='none'; row3.style.display='none'; elHint.style.display='none';
   rowPaused.style.display='flex';
@@ -768,20 +891,23 @@ document.getElementById('unpause').onclick=()=>{
   paused=false;
   rowPaused.style.display='none';
   row2.style.display='flex'; row3.style.display='flex'; elHint.style.display='';
-  elState.textContent = (tplUps.length&&tplDowns.length) ? 'Counting' : 'Needs calibration';
+  elState.textContent = !(tplUps.length&&tplDowns.length) ? 'Needs calibration'
+                       : repRunning ? 'Counting' : 'Ready';
+  applyPanel();
 };
 
 // hooks for the Firebase module below
 window.getCount=()=>count;
 window.zeroCount=()=>{count=0; elCount.textContent='0'; phase='up';};
 window.clearCalibration=(msg)=>{
-  tplUps=[]; tplDowns=[]; downCaptures=0; phase='up'; hold=0; lastPeak=0;
+  tplUps=[]; tplDowns=[]; downCaptures=0; phase='up'; hold=0; lastPeak=0; repRunning=false;
   btnUp.classList.remove('done'); btnUp.textContent='Capture up position';
   btnDown.classList.remove('done'); btnDown.textContent='Capture down position';
   if(running){
     elState.textContent='Needs calibration';
     elHint.textContent = msg || 'Cleared — capture the top and bottom of the movement again.';
   }
+  applyPanel();
 };
 
 function loop(){
@@ -839,12 +965,43 @@ function loop(){
     return;
   }
 
+  // auto-detect: pose-driven, no templates
+  if(autoMode){
+    if(poseDetector && !estimating){
+      estimating=true;
+      poseDetector.estimatePoses(v)
+        .then(p=>{
+          estimating=false;
+          if(!p[0]) return;
+          const gotRep=autoTick(p[0].keypoints);
+          if(gotRep && repRunning && !paused){
+            count++;
+            elCount.textContent=count;
+            elCount.classList.remove('pop'); void elCount.offsetWidth; elCount.classList.add('pop');
+            beep(900,130);
+          }
+        })
+        .catch(()=>{ estimating=false; });
+    }
+    const pa=Math.max(0,Math.min(1,autoAmp/.25));
+    elFill.style.width=(pa*100).toFixed(1)+'%';
+    elFill.style.background = repRunning ? 'var(--down)' : 'var(--signal)';
+    const rw=4+pa*34, rc = repRunning ? '63,217,168' : '255,176,32';
+    elRing.style.boxShadow=`inset 0 0 0 ${rw.toFixed(1)}px rgba(${rc},${(.25+pa*.45).toFixed(2)})`;
+    elReadout.textContent = `auto · swing ${autoAmp.toFixed(2)} · ${autoName}`;
+    elSensValue.textContent = `Sensitivity ${elSens.value}`;
+    return;
+  }
+
   if(tplUps.length&&tplDowns.length){
     const [du,dd]=bestPair(f,tplUps,tplDowns);
     score=du/(du+dd||1);
     const now=performance.now();
 
-    if(phase==='up'){
+    if(!repRunning){
+      // calibrated but not started — show the meter, count nothing
+      hold=0;
+    }else if(phase==='up'){
       // must stay past the trigger a few frames — a head twitch won't do it
       hold = score>armAt ? hold+1 : 0;
       if(hold>=HOLD && now-lastFlip>DEBOUNCE){ phase='down'; peak=score; hold=0; lastFlip=now; beep(340,60); }
