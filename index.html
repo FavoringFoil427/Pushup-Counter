@@ -117,17 +117,25 @@
   #autoToggle{width:44px;height:26px;accent-color:var(--signal);flex:0 0 auto}
   #autoNote{font-size:11px;line-height:1.4;color:var(--dim);opacity:.75}
 
-  #rowFraming{display:flex;flex-direction:column;gap:8px;
-    border:1px solid rgba(255,176,32,.4);border-radius:14px;padding:12px;
-    background:rgba(255,176,32,.07)}
-  #framingTitle{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--signal);
+  #rowFraming{display:none}
+  #framingScreen{position:absolute;inset:0;z-index:4;display:none;
+    align-items:center;justify-content:center;padding:24px;
+    background:rgba(2,20,25,.88)}
+  #framingScreen.on{display:flex}
+  #framingInner{width:100%;max-width:420px;display:flex;flex-direction:column;gap:16px;text-align:center}
+  #framingTitle{font-size:12px;letter-spacing:.28em;text-transform:uppercase;color:var(--signal);
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-  #framingList{display:flex;flex-wrap:wrap;gap:6px}
-  .fchip{font-size:11px;padding:5px 9px;border-radius:99px;
+  #framingMsg{font-size:17px;line-height:1.45;color:var(--paper);font-weight:600}
+  #framingList{display:flex;flex-wrap:wrap;gap:7px;justify-content:center}
+  .fchip{font-size:11px;padding:6px 10px;border-radius:99px;
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
     border:1px solid rgba(234,242,240,.2);color:var(--dim)}
   .fchip.ok{border-color:var(--down);color:var(--down)}
   .fchip.bad{border-color:rgba(255,120,120,.6);color:rgb(255,140,140)}
+  #framingBarWrap{height:8px;background:rgba(234,242,240,.14);border-radius:99px;overflow:hidden}
+  #framingBar{height:100%;width:0%;background:var(--signal);border-radius:99px;transition:width .12s linear}
+  #framingSub{font-size:12px;color:var(--dim);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em}
 
   #countdown{position:absolute;inset:0;z-index:3;display:none;place-items:center;background:rgba(2,20,25,.82)}
   #countdown.on{display:grid}
@@ -186,10 +194,7 @@
     <div class="row" id="row1">
       <button id="start" class="primary">Start camera</button>
     </div>
-    <div id="rowFraming" style="display:none">
-      <div id="framingTitle">Framing check</div>
-      <div id="framingList"></div>
-    </div>
+    <div id="rowFraming" style="display:none"></div>
     <div class="row" id="row2" style="display:none">
       <button id="calUp">Capture up position</button>
       <button id="calDown">Capture down position</button>
@@ -218,6 +223,17 @@
   </div>
 
   <div id="countdown"><div id="cdnum">3</div><div id="cdtxt">Hold still</div></div>
+
+  <div id="framingScreen">
+    <div id="framingInner">
+      <div id="framingTitle">Framing check</div>
+      <p id="framingMsg">Move the phone back until it can see your whole body.</p>
+      <div id="framingList"></div>
+      <div id="framingBarWrap"><div id="framingBar"></div></div>
+      <div id="framingSub">Loading body tracker…</div>
+    </div>
+  </div>
+
   <canvas id="poseDebug"></canvas>
 </div>
 
@@ -299,7 +315,11 @@ const FRAME_GROUPS=[
 const FRAME_HOLD=20;   // ~0.7s of good framing before it unlocks
 const elFramingRow=document.getElementById('rowFraming'),
       elFramingList=document.getElementById('framingList'),
-      elFramingTitle=document.getElementById('framingTitle');
+      elFramingTitle=document.getElementById('framingTitle'),
+      elFramingScreen=document.getElementById('framingScreen'),
+      elFramingMsg=document.getElementById('framingMsg'),
+      elFramingBar=document.getElementById('framingBar'),
+      elFramingSub=document.getElementById('framingSub');
 
 function checkFraming(kps){
   const status=[];
@@ -333,18 +353,36 @@ function paintFraming(status, msg){
     el.textContent=(s.ok?'✓ ':'✗ ')+s.label;
     elFramingList.appendChild(el);
   }
-  if(msg) elFramingTitle.textContent=msg;
+  if(msg) elFramingSub.textContent=msg;
 }
 
 function startFramingCheck(){
-  framed=false; framingHold=0; framingChecking=true;
-  elFramingTitle.textContent='Framing check';
-  elFramingList.innerHTML='<span class="fchip">looking for you…</span>';
-  ensurePose();
-  if(running){
-    elState.textContent='Framing';
-    elHint.textContent='Move the phone back until it sees your whole body — head to ankles.';
+  // the gate exists for auto-detect, which needs to see the whole body.
+  // manual reps and hold mode work the way they did before it existed.
+  if(!autoMode){
+    framed=true; framingChecking=false;
+    elFramingScreen.classList.remove('on');
+    if(running){
+      if(mode==='hold'){
+        elState.textContent = tplHold.length ? 'Ready' : 'Needs position';
+        elHint.textContent='Turn the phone landscape and set it to your side so it sees your whole body, then tap “Set position” while holding.';
+      }else{
+        elState.textContent = (tplUps.length&&tplDowns.length) ? 'Ready' : 'Needs calibration';
+        elHint.textContent='Capture the top and bottom of the movement to start counting.';
+      }
+    }
+    applyPanel();
+    return;
   }
+  framed=false; framingHold=0; framingChecking=true;
+  elFramingScreen.classList.add('on');
+  elFramingTitle.textContent='Framing check';
+  elFramingMsg.textContent='Move the phone back until it can see your whole body.';
+  elFramingList.innerHTML='';
+  elFramingBar.style.width='0%';
+  elFramingSub.textContent='Loading body tracker…';
+  ensurePose();
+  if(running) elState.textContent='Framing';
   applyPanel();
 }
 window.startFramingCheck=startFramingCheck;
@@ -354,12 +392,17 @@ window.startFramingCheck=startFramingCheck;
 // swinging, and counts full cycles with hysteresis. It doesn't know WHAT you're
 // doing — only that you're doing it rhythmically.
 let autoMode=false, autoRunning=false, autoPhase=0, autoLastRep=0, autoName='—', autoAmp=0;
+let autoLocked=false, autoIntervals=[], autoPending=0;
 const AUTO_WIN=90;            // ~3s of history at 30fps
 const AUTO_MIN_AMP=.035;      // swing must be this fraction of body size to count
 const AUTO_MIN_MS=450;        // fastest believable rep
+const AUTO_LOCK_CYCLES=3;     // consistent cycles needed before counting starts
 const autoHist=[];            // [{t, vals:Float32Array}]
 
-function autoReset(){ autoHist.length=0; autoPhase=0; autoLastRep=0; autoAmp=0; autoName='—'; }
+function autoReset(){
+  autoHist.length=0; autoPhase=0; autoLastRep=0; autoAmp=0; autoName='—';
+  autoLocked=false; autoIntervals=[]; autoPending=0;
+}
 
 function autoTick(kps){
   drawPose(kps);
@@ -405,13 +448,35 @@ function autoTick(kps){
   if(isNaN(cur)) return false;
   const hiGate=bestLo+bestRange*.70, loGate=bestLo+bestRange*.30;
   const now=performance.now();
-  let counted=false;
+  let cycle=false;
   if(autoPhase!==1 && cur>hiGate){ autoPhase=1; }
   else if(autoPhase===1 && cur<loGate){
     autoPhase=0;
-    if(now-autoLastRep>AUTO_MIN_MS){ autoLastRep=now; counted=true; }
+    if(now-autoLastRep>AUTO_MIN_MS){
+      if(autoLastRep) autoIntervals.push(now-autoLastRep);
+      autoLastRep=now; cycle=true;
+    }
   }
-  return counted;
+  if(!cycle) return false;
+
+  if(autoLocked) return true;
+
+  // not locked yet: hold the rep, and only start counting once the rhythm is
+  // consistent. Takes as long as it takes — an erratic warm-up just delays lock.
+  autoPending++;
+  const recent=autoIntervals.slice(-AUTO_LOCK_CYCLES);
+  if(recent.length>=AUTO_LOCK_CYCLES){
+    const avg=recent.reduce((a,b)=>a+b)/recent.length;
+    const consistent=recent.every(iv=>Math.abs(iv-avg)/avg<.35);
+    if(consistent){
+      autoLocked=true;
+      if(window.onAutoLock) window.onAutoLock(autoPending);
+      return false;   // the banked reps are credited by onAutoLock
+    }
+    // inconsistent — drop the oldest and keep watching
+    if(autoIntervals.length>12) autoIntervals=autoIntervals.slice(-6);
+  }
+  return false;
 }
 
 // ── hold-position (plank) mode ──
@@ -616,6 +681,17 @@ function countdownCapture(which){
     }
   },1000);
 }
+// credited once the rhythm locks: the reps you did while it was analyzing
+window.onAutoLock=(banked)=>{
+  if(!repRunning||paused) return;
+  count+=banked;
+  elCount.textContent=count;
+  elCount.classList.remove('pop'); void elCount.offsetWidth; elCount.classList.add('pop');
+  beep(900,130);
+  elState.textContent='Counting';
+  elHint.textContent='Locked on — counting your reps.';
+};
+
 // auto-detect toggle
 const elAuto=document.getElementById('autoToggle');
 try{ autoMode = localStorage.getItem('autoMode')==='1'; elAuto.checked=autoMode; }catch(e){}
@@ -814,11 +890,11 @@ function applyPanel(){
   const holdMode = mode==='hold';
   const autoReps = !holdMode && autoMode;
   // nothing is usable until the framing gate passes
-  elFramingRow.style.display = framed ? 'none' : 'flex';
-  if(!framed){
+  elFramingRow.style.display='none';
+  if(!framed && autoMode){
     row2.style.display='none'; row3.style.display='none';
     rowHold.style.display='none'; rowPaused.style.display='none';
-    elHint.style.display='';
+    elHint.style.display='none';
     elCount.classList.toggle('timer', holdMode);
     elCountLabel.textContent = holdMode ? 'hold time' : 'reps';
     return;
@@ -946,9 +1022,9 @@ btnPause.onclick=()=>{
     if(!autoMode && !(tplUps.length&&tplDowns.length)){ elHint.textContent='Capture the top and bottom first.'; return; }
     repRunning=true; phase='up'; hold=0;
     if(autoMode) autoReset();
-    elState.textContent='Counting';
+    elState.textContent = autoMode ? 'Analyzing' : 'Counting';
     elHint.textContent = autoMode
-      ? 'Counting. Do a few reps at a steady pace so it can lock onto the rhythm.'
+      ? 'Begin your workout — we will analyze it and begin counting your reps.'
       : 'Counting. A rep lands when you return to the top.';
     beep(660,90);
     applyPanel();
@@ -1039,28 +1115,36 @@ function loop(){
     return;
   }
 
-  // framing gate runs before anything else — no workout starts until it passes
-  if(!framed){
+  // framing gate runs before anything else — auto-detect only
+  if(!framed && autoMode){
     if(poseDetector && !estimating){
       estimating=true;
       poseDetector.estimatePoses(v)
         .then(p=>{
           estimating=false;
-          if(!p[0]){ framingHold=0; paintFraming([{label:'no body detected',ok:false}]); return; }
+          if(!p[0]){
+            framingHold=0;
+            paintFraming([{label:'no body detected',ok:false}],'Step back so the camera can see you');
+            return;
+          }
           drawPose(p[0].keypoints);
           const {allOk,status}=checkFraming(p[0].keypoints);
-          paintFraming(status, allOk ? 'Hold still…' : 'Framing check');
+          paintFraming(status, allOk ? 'Hold still…' : 'Adjust the phone until every check is green');
+          elFramingMsg.textContent = allOk
+            ? 'Got you — hold still.'
+            : 'Move the phone back until it can see your whole body.';
           framingHold = allOk ? framingHold+1 : 0;
+          elFramingBar.style.width=(Math.min(1,framingHold/FRAME_HOLD)*100).toFixed(0)+'%';
           if(framingHold>=FRAME_HOLD){
             framed=true; framingChecking=false;
             beep(880,180);
-            elFramingTitle.textContent='Framing OK';
+            elFramingScreen.classList.remove('on');
             if(mode==='hold'){
               elState.textContent = tplHold.length ? 'Ready' : 'Needs position';
               elHint.textContent='Framing good. Tap “Set position” while holding.';
             }else if(autoMode){
               elState.textContent='Ready';
-              elHint.textContent='Framing good. Tap Start and do your reps.';
+              elHint.textContent='Framing good. Tap Start when you\u2019re ready.';
             }else{
               elState.textContent='Needs calibration';
               elHint.textContent='Framing good. Capture the top and bottom of the movement.';
@@ -1069,11 +1153,7 @@ function loop(){
           }
         })
         .catch(()=>{ estimating=false; });
-    }else if(!poseDetector){
-      elFramingList.innerHTML='<span class="fchip">loading body tracker…</span>';
     }
-    elFill.style.width=(Math.min(1,framingHold/FRAME_HOLD)*100).toFixed(1)+'%';
-    elFill.style.background='var(--signal)';
     return;
   }
 
@@ -1097,10 +1177,11 @@ function loop(){
     }
     const pa=Math.max(0,Math.min(1,autoAmp/.25));
     elFill.style.width=(pa*100).toFixed(1)+'%';
-    elFill.style.background = repRunning ? 'var(--down)' : 'var(--signal)';
-    const rw=4+pa*34, rc = repRunning ? '63,217,168' : '255,176,32';
+    elFill.style.background = autoLocked ? 'var(--down)' : 'var(--signal)';
+    const rw=4+pa*34, rc = autoLocked ? '63,217,168' : '255,176,32';
     elRing.style.boxShadow=`inset 0 0 0 ${rw.toFixed(1)}px rgba(${rc},${(.25+pa*.45).toFixed(2)})`;
-    elReadout.textContent = `auto · swing ${autoAmp.toFixed(2)} · ${autoName}`;
+    elReadout.textContent = `auto · swing ${autoAmp.toFixed(2)} · ${autoName}` +
+      (repRunning ? (autoLocked ? ' · locked' : ' · analyzing') : '');
     elSensValue.textContent = `Sensitivity ${elSens.value}`;
     return;
   }
